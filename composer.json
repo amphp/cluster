@@ -1,7 +1,7 @@
 {
     "name": "amphp/cluster",
     "homepage": "https://github.com/amphp/cluster",
-    "description": "Clu",
+    "description": "Cluster",
     "keywords": [
         "cluster",
         "multi-process",
