@@ -3,29 +3,30 @@
 namespace Amp\Cluster;
 
 use Amp\ByteStream\OutputBuffer;
+use Amp\Emitter;
 use Amp\Parallel\Sync\ChannelledStream;
 use Amp\Promise;
 use Amp\Socket\Socket;
-use Psr\Log\LoggerInterface as PsrLogger;
 use function Amp\call;
 
 class Worker {
     /** @var \Amp\Socket\Socket */
     private $socket;
 
+    /** @var \Amp\Parallel\Sync\ChannelledStream */
     private $channel;
 
-    /** @var \Psr\Log\LoggerInterface */
-    private $logger;
+    /** @var \Amp\Emitter */
+    private $emitter;
 
     /** @var callable */
-    private $listen;
+    private $bind;
 
-    public function __construct(Socket $socket, PsrLogger $logger, callable $listen) {
+    public function __construct(Socket $socket, Emitter $emitter, callable $bind) {
         $this->socket = $socket;
+        $this->emitter = $emitter;
         $this->channel = new ChannelledStream($this->socket, new OutputBuffer); // Channel is read-only.
-        $this->logger = $logger;
-        $this->listen = $listen;
+        $this->bind = $bind;
     }
 
     public function run(): Promise {
@@ -47,7 +48,8 @@ class Worker {
         switch ($message["type"]) {
             case "import-socket":
                 $uri = $message["payload"];
-                $stream = ($this->listen)($uri);
+
+                $stream = ($this->bind)($uri);
 
                 $socket = \socket_import_stream($this->socket->getResource());
 
@@ -60,12 +62,8 @@ class Worker {
                 }
                 break;
 
-            case "log":
-                $data = $message["payload"];
-                $this->logger->log($data["level"], $data["message"], $data["context"]);
-                break;
-
             case "data":
+                $this->emitter->emit($message["payload"]);
                 break;
 
             default:
