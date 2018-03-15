@@ -2,18 +2,15 @@
 
 namespace Amp\Cluster;
 
-use function Amp\call;
 use Amp\Deferred;
-use Amp\Iterator;
 use Amp\Loop;
 use Amp\Parallel\Sync\Channel;
-use Amp\Parallel\Sync\ChannelledStream;
 use Amp\Promise;
 use Amp\Socket\Server;
 use Amp\Socket\ServerListenContext;
 use Amp\Socket\ServerTlsContext;
 use Amp\Socket\Socket;
-use Psr\Log\AbstractLogger;
+use function Amp\call;
 
 class Listener {
     const HEADER_LENGTH = 5;

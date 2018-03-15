@@ -2,15 +2,14 @@
 
 namespace Amp\Cluster;
 
-use function Amp\call;
+use Amp\ByteStream\OutputBuffer;
 use Amp\Parallel\Sync\ChannelledStream;
 use Amp\Promise;
 use Amp\Socket\Socket;
 use Psr\Log\LoggerInterface as PsrLogger;
+use function Amp\call;
 
 class Worker {
-    const HEADER_LENGTH = 5;
-
     /** @var \Amp\Socket\Socket */
     private $socket;
 
@@ -24,7 +23,7 @@ class Worker {
 
     public function __construct(Socket $socket, PsrLogger $logger, callable $listen) {
         $this->socket = $socket;
-        $this->channel = new ChannelledStream($this->socket, $this->socket);
+        $this->channel = new ChannelledStream($this->socket, new OutputBuffer); // Channel is read-only.
         $this->logger = $logger;
         $this->listen = $listen;
     }

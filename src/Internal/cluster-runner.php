@@ -2,35 +2,35 @@
 
 namespace Amp\Cluster\Internal;
 
-use Amp\ByteStream\InMemoryStream;
-use Amp\Cluster\IpcLogger;
-use Amp\Cluster\Listener;
-use Amp\Emitter;
-use Amp\Parallel\Sync\ChannelledSocket;
-use Amp\Parallel\Sync\ChannelledStream;
+use Amp\Cluster\Cluster;
+use Amp\Parallel\Sync\Channel;
 use Amp\Socket;
-use function Amp\call;
 
-return function (ChannelledSocket $receiveChannel) use ($argc, $argv) {
+return function (Channel $channel) use ($argc, $argv) {
     // Remove this scripts path from process arguments.
-    \array_shift($argv);
     --$argc;
+    \array_shift($argv);
 
     if (!isset($argv[0])) {
         throw new \Error("No socket path provided");
     }
 
-    /** @var \Amp\Socket\ClientSocket $socket */
-    $socket = yield Socket\connect(\array_shift($argv));
+    // Remove socket path from process arguments.
     --$argc;
+    $uri = \array_shift($argv);
 
-    $emitter = new Emitter;
-    $sendChannel = new ChannelledStream(new InMemoryStream, $socket); // Channel is write-only.
-    $listener = new Listener($socket, $sendChannel);
-    $logger = new IpcLogger($sendChannel);
+    try {
+        $socket = yield Socket\connect($uri);
+    } catch (\Throwable $exception) {
+        return 1;
+    }
+
+    (function () use ($socket) {
+        static::init($socket);
+    })->bindTo(null, Cluster::class)();
 
     // Protect current scope by requiring script within another function.
-    $init = (function () use ($argc, $argv): callable {
+    (function () use ($argc, $argv) {
         if (!isset($argv[0])) {
             throw new \Error("No script path given");
         }
@@ -39,36 +39,8 @@ return function (ChannelledSocket $receiveChannel) use ($argc, $argv) {
             throw new \Error(\sprintf("No script found at '%s' (be sure to provide the full path to the script)", $argv[0]));
         }
 
-        $callable = require $argv[0];
-
-        if (!\is_callable($callable)) {
-            throw new \Error("Script did not return a callable function");
-        }
-
-        return $callable;
+        return require $argv[0];
     })();
 
-    $stop = yield call($init, $listener, $logger, $emitter->iterate());
-
-    if (!\is_callable($stop)) {
-        throw new \Error("Cluster initialization callable did not return a stop callable");
-    }
-
-    try {
-        while (($value = $receiveChannel->receive()) !== null) {
-            yield $emitter->emit($value);
-        }
-
-        $emitter->complete();
-    } catch (\Throwable $exception) {
-        $emitter->fail($exception);
-    }
-
-    try {
-        yield call($stop);
-        yield $sendChannel->send(null);
-    } finally {
-        $socket->close();
-        $receiveChannel->close();
-    }
+    return 0;
 };

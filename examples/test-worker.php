@@ -1,14 +1,14 @@
 <?php
 
-use Amp\Iterator;
-use Amp\Cluster\Listener;
-use Psr\Log\LoggerInterface as PsrLogger;
+require dirname(__DIR__) . "/vendor/autoload.php";
 
-return function (Listener $listener, PsrLogger $logger, Iterator $iterator) {
+use Amp\Cluster\Cluster;
+
+\Amp\Loop::run(function () {
     /** @var \Amp\Socket\Server $server */
-    $server = yield $listener->listen("tcp://0.0.0.0:8080");
+    $server = yield Cluster::listen("tcp://0.0.0.0:1337");
 
-    $logger->info("Listening on " . $server->getAddress());
+    //$logger->info("Listening on " . $server->getAddress());
 
     \Amp\asyncCall(function () use ($server) {
         /** @var \Amp\Socket\ClientSocket $client */
@@ -18,7 +18,7 @@ return function (Listener $listener, PsrLogger $logger, Iterator $iterator) {
         }
     });
 
-    return function () use ($server) {
+    Cluster::onClose(function () use ($server) {
         $server->close();
-    };
-};
+    });
+});
