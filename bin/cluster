@@ -8,9 +8,14 @@ use Amp\Cluster\ConsoleLogger;
 use Amp\Loop;
 use function Amp\Cluster\countCpuCores;
 
-Loop::run(function () {
+Loop::run(function () use ($argv, $argc) {
+    if ($argc !== 2) {
+        print "Usage: bin/cluster script.php\r\n";
+        exit(1);
+    }
+
     $logger = new ConsoleLogger;
-    $cluster = new Cluster(__DIR__ . "/../examples/test-worker.php");
+    $cluster = new Cluster($argv[1]);
 
     yield $cluster->start(countCpuCores());
 
