@@ -189,7 +189,7 @@ class Cluster {
             self::$watchers[] = Loop::onSignal(\defined("SIGQUIT") ? \SIGQUIT : 3, $terminate);
             self::$watchers[] = Loop::onSignal(\defined("SIGTERM") ? \SIGTERM : 15, $terminate);
 
-            foreach(self::$watchers as $watcher) {
+            foreach (self::$watchers as $watcher) {
                 Loop::unreference($watcher);
             }
         }
