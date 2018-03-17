@@ -2,6 +2,10 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ResourceOutputStream;
+use Amp\Cluster\Internal\IpcWriter;
+use Amp\Cluster\Internal\LogWriter;
+use Amp\Cluster\Internal\StreamWriter;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LogLevel;
 
@@ -17,74 +21,47 @@ final class ConsoleLogger extends AbstractLogger {
         LogLevel::EMERGENCY => 1,
     ];
 
-    private $outputLevel = self::LEVELS[LogLevel::DEBUG];
-    private $colors = true;
-    private $console;
+    /** @var int */
+    private $outputLevel;
 
-    public function __construct(Console $console) {
-        $this->console = $console;
+    /** @var LogWriter */
+    private $writer;
 
-        if ($console->hasArgument("color")) {
-            $value = $console->getArgument("color");
-            $this->setAnsiColorOption($value);
-        }
+    public function __construct(string $logLevel = LogLevel::INFO) {
+        $this->setOutputLevel($logLevel);
 
-        if ($console->hasArgument("log")) {
-            $level = $console->getArgument("log");
-            $level = self::LEVELS[$level] ?? $level;
-            $this->setOutputLevel($level);
+        if (Cluster::isWorker()) {
+            $this->writer = new IpcWriter;
+        } else {
+            $this->writer = new StreamWriter(new ResourceOutputStream(\STDOUT));
         }
     }
 
-    private function setAnsiColorOption($value) {
-        $value = ($value === "") ? "on" : $value;
-
-        switch ($value) {
-            case "auto":
-            case "on":
-                $this->colors = true;
-                break;
-            case "off":
-                $this->colors = false;
-                break;
-            default:
-                $this->colors = true;
-                break;
+    private function setOutputLevel(string $logLevel) {
+        if (!isset(self::LEVELS[$logLevel])) {
+            throw new \Error("Invalid log level: {$logLevel}");
         }
 
-        if ($value === "on") {
-            $this->console->forceAnsiOn();
-        }
-    }
-
-    private function setOutputLevel(int $outputLevel) {
-        if ($outputLevel < \min(self::LEVELS)) {
-            $outputLevel = \min(self::LEVELS);
-        } elseif ($outputLevel > \max(self::LEVELS)) {
-            $outputLevel = \max(self::LEVELS);
-        }
-
-        $this->outputLevel = $outputLevel;
+        $this->outputLevel = self::LEVELS[$logLevel];
     }
 
     public function log($level, $message, array $context = []) {
-        if ($this->canEmit($level)) {
-            $message = $this->format($level, $message, $context);
-            $this->console->output($message);
+        if (!$this->shouldEmit($level)) {
+            return;
         }
+
+        $message = $this->formatMessage($message, $context);
+        $time = $context["time"] ?? time();
+        $this->writer->log($time, $level, $message);
     }
 
-    private function canEmit(string $logLevel) {
+    private function shouldEmit(string $logLevel): bool {
         return isset(self::LEVELS[$logLevel])
             ? ($this->outputLevel >= self::LEVELS[$logLevel])
             : false;
     }
 
-    private function format($level, $message, array $context = []) {
-        $time = @date("Y-m-d H:i:s", $context["time"] ?? time());
-        $level = isset(self::LEVELS[$level]) ? $level : "unknown";
-        $level = $this->colors ? $this->ansify($level) : "$level:";
-
+    private function formatMessage(string $message, array $context = []): string {
         foreach ($context as $key => $replacement) {
             // avoid invalid casts to string
             if (!\is_array($replacement) && (!\is_object($replacement) || \method_exists($replacement, '__toString'))) {
@@ -97,28 +74,6 @@ final class ConsoleLogger extends AbstractLogger {
         }
 
         // Strip any control characters...
-        $message = preg_replace('/[\x00-\x1F\x7F]/', '', $message);
-
-        return "[{$time}] {$level} {$message}";
-    }
-
-    private function ansify($level) {
-        switch ($level) {
-            case LogLevel::EMERGENCY:
-            case LogLevel::ALERT:
-            case LogLevel::CRITICAL:
-            case LogLevel::ERROR:
-                return "<bold><red>{$level}</red></bold>";
-            case LogLevel::WARNING:
-                return "<bold><yellow>{$level}</yellow></bold>";
-            case LogLevel::NOTICE:
-                return "<bold><green>{$level}</green></bold>";
-            case LogLevel::INFO:
-                return "<bold><magenta>{$level}</magenta></bold>";
-            case LogLevel::DEBUG:
-                return "<bold><cyan>{$level}</cyan></bold>";
-            default:
-                return "<bold>{$level}</bold>";
-        }
+        return preg_replace('/[\x00-\x1F\x7F]/', '', $message);
     }
 }
