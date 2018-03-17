@@ -2,92 +2,41 @@
 
 namespace Amp\Cluster;
 
-use Amp\Promise;
-use Psr\Log\LoggerInterface as PsrLogger;
-use function Amp\call;
-
 /**
- * Bootstrap a server from command line options.
- *
- * @param PsrLogger $logger
- * @param Console $console
- *
- * @return \Amp\Promise
+ * Determine the total number of CPU cores on the system.
  */
-function boot(PsrLogger $logger, Console $console): Promise {
-    return call(function () use ($logger, $console) {
-        $configFile = selectConfigFile((string) $console->getArg("config"));
+function countCpuCores(): int {
+    static $cores;
 
-        // Protect current scope by requiring script within another function.
-        $initializer = (function () use ($configFile) {
-            return require $configFile;
-        })();
-
-        $logger->info("Using config file found at $configFile");
-
-        if (!\is_callable($initializer)) {
-            throw new \Error("The config file at $configFile must return a callable");
-        }
-
-        try {
-            $bootable = yield call($initializer, $logger, $console);
-        } catch (\Throwable $exception) {
-            throw new \Error(
-                "Callable invoked from file at $configFile threw an exception",
-                0,
-                $exception
-            );
-        }
-
-        if (!$bootable instanceof Bootable) {
-            throw new \Error(
-                "Callable invoked from file at $configFile did not return an instance of " . Bootable::class
-            );
-        }
-
-        return $bootable;
-    });
-}
-
-/**
- * Gives the absolute path of a config file.
- *
- * @param string $configFile path to config file used by Aerys instance
- *
- * @return string
- */
-function selectConfigFile(string $configFile): string {
-    if ($configFile == "") {
-        throw new \Error(
-            "No config file found, specify one via the -c switch on command line"
-        );
+    if ($cores !== null) {
+        return $cores;
     }
 
-    $path = realpath(is_dir($configFile) ? rtrim($configFile, "/") . "/config.php" : $configFile);
+    $os = (\stripos(\PHP_OS, "WIN") === 0) ? "win" : \strtolower(\PHP_OS);
 
-    if ($path === false) {
-        throw new \Error("No config file found at " . $configFile);
+    switch ($os) {
+        case "win":
+            $cmd = "wmic cpu get NumberOfCores";
+            break;
+        case "linux":
+        case "darwin":
+            $cmd = "getconf _NPROCESSORS_ONLN";
+            break;
+        case "netbsd":
+        case "openbsd":
+        case "freebsd":
+            $cmd = "sysctl hw.ncpu | cut -d ':' -f2";
+            break;
+        default:
+            $cmd = null;
+            break;
     }
 
-    return $path;
-}
+    $execResult = $cmd ? \shell_exec($cmd) : 1;
 
-/**
- * Binds a server socket using the given address and context.
- *
- * @param string $address
- * @param array $context
- *
- * @return resource
- */
-function socketBinder(string $address, array $context) {
-    if (!strncmp($address, "unix://", 7)) {
-        @unlink(substr($address, 7));
+    if ($os === 'win') {
+        $execResult = \explode("\n", $execResult)[1];
     }
 
-    if (!$socket = stream_socket_server($address, $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, stream_context_create($context))) {
-        throw new \RuntimeException(sprintf("Failed binding socket on %s: [Err# %s] %s", $address, $errno, $errstr));
-    }
-
-    return $socket;
+    return $cores = (int) \trim($execResult);
 }
