@@ -38,5 +38,7 @@ function countCpuCores(): int {
         $execResult = \explode("\n", $execResult)[1];
     }
 
-    return $cores = (int) \trim($execResult);
+    $cores = (int) \trim($execResult);
+
+    return $cores;
 }

@@ -59,7 +59,7 @@ $climate->arguments->add([
 $console = new Amp\Cluster\Console($climate);
 
 Amp\Loop::run(function () use ($console) {
-    $ipcUri = $console->getArg("ipc");
+    $ipcUri = $console->getArgument("ipc");
 
     try {
         $ipcSock = yield Amp\Socket\connect($ipcUri);

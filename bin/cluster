@@ -107,12 +107,12 @@ $climate->arguments->add([
 $console = new Amp\Cluster\Console($climate);
 
 try {
-    if ($console->isArgDefined("help")) {
+    if ($console->hasArgument("help")) {
         echo $help;
         exit(0);
     }
 
-    if (!$console->isArgDefined("config")) {
+    if (!$console->hasArgument("config")) {
         throw new \Error("A config file must be defined using -c or --config");
     }
 } catch (Throwable $e) {
@@ -123,7 +123,7 @@ try {
 
 Amp\Loop::run(function () use ($console) {
     $logger = new Amp\Cluster\ConsoleLogger($console);
-    $process = ($console->isArgDefined("debug") || PHP_SAPI === "phpdbg")
+    $process = ($console->hasArgument("debug") || PHP_SAPI === "phpdbg")
         ? new Amp\Cluster\DebugProcess($logger)
         : new Amp\Cluster\WatcherProcess($logger)
     ;
