@@ -2,46 +2,69 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\OutputBuffer;
 use Amp\Emitter;
+use Amp\Loop;
+use Amp\Parallel\Sync\Channel;
 use Amp\Parallel\Sync\ChannelledStream;
 use Amp\Promise;
 use Amp\Socket\Socket;
 use function Amp\call;
 
 class Worker {
-    /** @var \Amp\Socket\Socket */
+    const PING_TIMEOUT = 10000;
+
+    /** @var Socket */
     private $socket;
 
-    /** @var \Amp\Parallel\Sync\ChannelledStream */
-    private $channel;
-
-    /** @var \Amp\Emitter */
+    /** @var Emitter */
     private $emitter;
 
     /** @var callable */
     private $bind;
 
-    public function __construct(Socket $socket, Emitter $emitter, callable $bind) {
+    /** @var Channel */
+    private $channel;
+
+    /** @var int */
+    private $lastActivity;
+
+    public function __construct(Channel $channel, Socket $socket, Emitter $emitter, callable $bind) {
         $this->socket = $socket;
         $this->emitter = $emitter;
-        $this->channel = new ChannelledStream($this->socket, new OutputBuffer); // Channel is read-only.
         $this->bind = $bind;
+        $this->lastActivity = \time();
+        $this->channel = $channel;
     }
 
     public function run(): Promise {
         return call(function () {
-            while (null !== $message = yield $this->channel->receive()) {
-                $this->handleMessage($message);
-            }
+            $watcher = Loop::repeat(self::PING_TIMEOUT / 2, function () {
+                if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
+                    $this->socket->close();
+                } else {
+                    $this->channel->send([
+                        "type" => "ping",
+                        "payload" => null,
+                    ]);
+                }
+            });
 
-            $this->socket->close();
-            $this->socket = null;
+            try {
+                while (null !== $message = yield $this->channel->receive()) {
+                    $this->lastActivity = \time();
+                    $this->handleMessage($message);
+                }
+            } finally {
+                Loop::cancel($watcher);
+
+                $this->socket->close();
+                $this->socket = null;
+            }
         });
     }
 
     private function handleMessage(array $message) {
-        if (!isset($message["type"], $message["payload"])) {
+        if (!\array_key_exists("type", $message) || !\array_key_exists("payload", $message)) {
             throw new \RuntimeException("Message error");
         }
 
@@ -49,17 +72,22 @@ class Worker {
             case "import-socket":
                 $uri = $message["payload"];
 
-                $stream = ($this->bind)($uri);
+                $this->channel->send(["type" => "import-socket", "payload" => null]);
 
+                $stream = ($this->bind)($uri);
                 $socket = \socket_import_stream($this->socket->getResource());
 
-                if (!\socket_sendmsg($socket, [
-                        "iov" => [$uri],
-                        "control" => [["level" => \SOL_SOCKET, "type" => \SCM_RIGHTS, "data" => [$stream]]],
-                    ], 0)
-                ) {
-                    throw new \RuntimeException("Could not transfer socket");
+                \error_clear_last();
+                if (!@\socket_sendmsg($socket, [
+                    "iov" => [$uri],
+                    "control" => [["level" => \SOL_SOCKET, "type" => \SCM_RIGHTS, "data" => [$stream]]],
+                ], 0)) {
+                    $error = \error_get_last()["message"] ?? "Unknown error";
+                    throw new \RuntimeException("Could not transfer socket: " . $error);
                 }
+                break;
+
+            case "pong":
                 break;
 
             case "data":

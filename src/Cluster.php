@@ -2,14 +2,14 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\InMemoryStream;
 use Amp\CallableMaker;
-use Amp\Deferred;
+use Amp\Cluster\Internal\IpcClient;
 use Amp\Emitter;
 use Amp\Iterator;
 use Amp\Loop;
 use Amp\Parallel\Context\Process;
-use Amp\Parallel\Sync\ChannelledStream;
+use Amp\Parallel\Sync\Channel;
+use Amp\Process\StatusError;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
@@ -25,11 +25,8 @@ class Cluster {
 
     const SHUTDOWN_TIMEOUT = 3000;
 
-    /** @var \Amp\Socket\ClientSocket|null */
-    private static $socket;
-
-    /** @var \Amp\Parallel\Sync\Channel|null */
-    private static $channel;
+    /** @var IpcClient */
+    private static $client;
 
     /** @var string[]|null */
     private static $watchers;
@@ -49,10 +46,10 @@ class Cluster {
     /** @var string Socket server URI */
     private $uri;
 
-    /** @var \Amp\Socket\Server */
+    /** @var Server */
     private $server;
 
-    /** @var \Amp\Emitter */
+    /** @var Emitter */
     private $emitter;
 
     /** @var callable */
@@ -62,11 +59,10 @@ class Cluster {
     private $workers;
 
     /**
-     * @param \Amp\Socket\ClientSocket $socket
+     * @param Socket\ClientSocket $socket
      */
-    private static function init(Socket\ClientSocket $socket) {
-        self::$socket = $socket;
-        self::$channel = new ChannelledStream(new InMemoryStream, $socket); // Write-only channel.
+    private static function init(Channel $channel, Socket\ClientSocket $socket) {
+        self::$client = new IpcClient($channel, $socket);
     }
 
     /**
@@ -77,8 +73,8 @@ class Cluster {
             return;
         }
 
-        if (self::$socket !== null) {
-            self::$socket->close();
+        if (self::$client !== null) {
+            self::$client = null;
         }
 
         if (self::$watchers !== null) {
@@ -96,35 +92,25 @@ class Cluster {
     }
 
     /**
-     * @param array $message
-     *
-     * @return \Amp\Promise
-     */
-    private static function write(array $message): Promise {
-        \assert(self::isWorker(), \sprintf("Call to %s::%s() in parent", __CLASS__, __METHOD__));
-        return self::$channel->send($message);
-    }
-
-    /**
      * @return bool
      */
     public static function isWorker(): bool {
-        return self::$socket !== null;
+        return self::$client !== null;
     }
 
     /**
-     * @param string $uri
-     * @param \Amp\Socket\ServerListenContext|null $listenContext
-     * @param \Amp\Socket\ServerTlsContext|null $tlsContext
+     * @param string                          $uri
+     * @param Socket\ServerListenContext|null $listenContext
+     * @param Socket\ServerTlsContext|null    $tlsContext
      *
-     * @return \Amp\Promise
+     * @return Promise
      */
     public static function listen(
         string $uri,
         Socket\ServerListenContext $listenContext = null,
         Socket\ServerTlsContext $tlsContext = null
     ): Promise {
-        // Add condition for systems where SO_REUSEPORT is supported to simply return from Socket\listen().
+        // TODO: Add condition for systems where SO_REUSEPORT is supported to simply return from Socket\listen().
 
         if (!self::isWorker()) {
             $socket = self::bindSocket($uri);
@@ -133,40 +119,23 @@ class Cluster {
         }
 
         return call(function () use ($uri, $listenContext, $tlsContext) {
-            yield self::write(["type" => "import-socket", "payload" => $uri]);
+            $socket = yield self::$client->send("import-socket", $uri);
 
-            $deferred = new Deferred;
-
-            Loop::onReadable(self::$socket->getResource(), function ($watcherId) use ($deferred, $listenContext, $tlsContext) {
-                Loop::cancel($watcherId);
-
-                $socket = \socket_import_stream(self::$socket->getResource());
-
-                $data = ["controllen" => \socket_cmsg_space(SOL_SOCKET, SCM_RIGHTS) + 4]; // 4 == sizeof(int)
-                if (!\socket_recvmsg($socket, $data)) {
-                    $deferred->fail(new \RuntimeException("Socket could not be received from parent process"));
-                }
-
-                $socket = $data["control"][0]["data"][0];
-
-                $deferred->resolve(self::listenOnSocket($socket, $listenContext, $tlsContext));
-            });
-
-            return $deferred->promise();
+            return self::listenOnSocket($socket, $listenContext, $tlsContext);
         });
     }
 
     /**
      * @param mixed $data Send data to the parent.
      *
-     * @return \Amp\Promise
+     * @return Promise
      */
     public static function send($data): Promise {
         if (!self::isWorker()) {
             return new Success; // What should this do in the parent?
         }
 
-        return self::write(["type" => "data", "payload" => $data]);
+        return self::$client->send("data", $data);
     }
 
     /**
@@ -199,8 +168,6 @@ class Cluster {
 
     /**
      * @param string|string[] $script Script path and optional arguments.
-     *
-     * @throws \Amp\Socket\SocketException
      */
     public function __construct($script) {
         if (self::isWorker()) {
@@ -227,7 +194,7 @@ class Cluster {
     /**
      * @param int $count Number of cluster workers to spawn.
      *
-     * @return \Amp\Promise Succeeded when the cluster has started.
+     * @return Promise Succeeded when the cluster has started.
      */
     public function start(int $count): Promise {
         if ($this->running) {
@@ -249,19 +216,23 @@ class Cluster {
                 $process->start();
 
                 try {
-                    /** @var \Amp\Socket\ClientSocket $socket */
+                    /** @var Socket\ClientSocket $socket */
                     $socket = yield Promise\timeout($this->server->accept(), self::CONNECT_TIMEOUT);
                 } catch (\Throwable $exception) {
                     $this->stop();
                     throw $exception;
                 }
 
-                $worker = new Worker($socket, $this->emitter, $this->bind);
-
+                $worker = new Worker($process, $socket, $this->emitter, $this->bind);
                 $this->workers->attach($worker, $process);
 
-                $worker->run()->onResolve(function ($exception) {
-                    // If the cluster has not stopped, restart worker?
+                $worker->run()->onResolve(function (\Throwable $exception = null) use ($process) {
+                    // TODO: If the cluster has not stopped, restart worker?
+                    if ($exception) {
+                        \fwrite(\STDERR, "The child died: " . $exception->getMessage() . "\r\n");
+                    }
+
+                    $this->stop();
                 });
             }
         });
@@ -288,7 +259,11 @@ class Cluster {
             $promise = Promise\timeout($process->join(), self::SHUTDOWN_TIMEOUT);
             $promise->onResolve(static function ($exception) use ($process) {
                 if ($exception) {
-                    $process->kill();
+                    try {
+                        $process->kill();
+                    } catch (StatusError $e) {
+                        // ignore
+                    }
                 }
             });
         }
@@ -337,11 +312,11 @@ class Cluster {
     }
 
     /**
-     * @param resource $socket Socket resource (not a stream socket resource).
-     * @param \Amp\Socket\ServerListenContext|null $listenContext
-     * @param \Amp\Socket\ServerTlsContext|null $tlsContext
+     * @param resource                        $socket Socket resource (not a stream socket resource).
+     * @param Socket\ServerListenContext|null $listenContext
+     * @param Socket\ServerTlsContext|null    $tlsContext
      *
-     * @return \Amp\Socket\Server
+     * @return Server
      */
     private static function listenOnSocket(
         $socket,

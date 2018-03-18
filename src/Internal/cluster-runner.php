@@ -20,13 +20,13 @@ return function (Channel $channel) use ($argc, $argv) {
     $uri = \array_shift($argv);
 
     try {
-        $socket = yield Socket\connect($uri);
+        $transferSocket = yield Socket\connect($uri);
     } catch (\Throwable $exception) {
         return 1;
     }
 
-    (function () use ($socket) {
-        static::init($socket);
+    (function () use ($channel, $transferSocket) {
+        static::init($channel, $transferSocket);
     })->bindTo(null, Cluster::class)();
 
     // Protect current scope by requiring script within another function.
