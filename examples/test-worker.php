@@ -3,7 +3,7 @@
 require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\Cluster\Cluster;
-use Amp\Cluster\ConsoleLogger;
+use Amp\Log\Logger;
 use Amp\Loop;
 use function Amp\asyncCall;
 
@@ -11,7 +11,7 @@ Loop::run(function () {
     /** @var \Amp\Socket\Server $server */
     $server = yield Cluster::listen("tcp://0.0.0.0:1337");
 
-    $logger = new ConsoleLogger;
+    $logger = new Logger(Cluster::getLogWriter());
     $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), \getmypid()));
 
     asyncCall(function () use ($server) {

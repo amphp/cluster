@@ -4,7 +4,8 @@
 require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\Cluster\Cluster;
-use Amp\Cluster\ConsoleLogger;
+use Amp\Log\Logger;
+use Amp\Log\Writer\ConsoleWriter;
 use Amp\Loop;
 use function Amp\Cluster\countCpuCores;
 
@@ -14,24 +15,12 @@ Loop::run(function () use ($argv, $argc) {
         exit(1);
     }
 
-    $logger = new ConsoleLogger;
-    $cluster = new Cluster($argv[1]);
+    $logger = new Logger(new ConsoleWriter);
+    $cluster = new Cluster($argv[1], $logger);
 
     yield $cluster->start(countCpuCores());
 
     Cluster::onTerminate(function () use ($cluster) {
         $cluster->stop();
     });
-
-    $iterator = $cluster->iterate();
-
-    while (yield $iterator->advance()) {
-        $data = $iterator->getCurrent();
-
-        if ($data["type"] === ConsoleLogger::class) {
-            $logger->log($data["level"], $data["message"], [
-                'time' => $data["time"],
-            ]);
-        }
-    }
 });

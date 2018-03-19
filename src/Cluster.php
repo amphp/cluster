@@ -6,14 +6,16 @@ use Amp\CallableMaker;
 use Amp\Cluster\Internal\IpcClient;
 use Amp\Emitter;
 use Amp\Iterator;
+use Amp\Log\Writer;
 use Amp\Loop;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
-use Amp\Process\StatusError;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
 use Amp\Success;
+use Psr\Log\LoggerInterface as PsrLogger;
+use Psr\Log\NullLogger;
 use function Amp\call;
 
 class Cluster {
@@ -42,6 +44,9 @@ class Cluster {
 
     /** @var string[] */
     private $script;
+
+    /** @var PsrLogger */
+    private $logger;
 
     /** @var string Socket server URI */
     private $uri;
@@ -126,6 +131,20 @@ class Cluster {
     }
 
     /**
+     * @param \Amp\Log\Writer|null $writer Writer used if not running as a cluster. An instance of ConsoleWriter is
+     *     returned if null.
+     *
+     * @return \Amp\Log\Writer
+     */
+    public static function getLogWriter(Writer $writer = null): Writer {
+        if (!self::isWorker()) {
+            return $writer ?? new Writer\ConsoleWriter;
+        }
+
+        return new Internal\IpcWriter(self::$client);
+    }
+
+    /**
      * @param mixed $data Send data to the parent.
      *
      * @return Promise
@@ -169,10 +188,12 @@ class Cluster {
     /**
      * @param string|string[] $script Script path and optional arguments.
      */
-    public function __construct($script) {
+    public function __construct($script, PsrLogger $logger = null) {
         if (self::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
         }
+
+        $this->logger = $logger ?? new NullLogger;
 
         $this->uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
 
@@ -223,7 +244,7 @@ class Cluster {
                     throw $exception;
                 }
 
-                $worker = new Worker($process, $socket, $this->emitter, $this->bind);
+                $worker = new Internal\IpcParent($process, $socket, $this->logger, $this->emitter, $this->bind);
                 $this->workers->attach($worker, $process);
 
                 $worker->run()->onResolve(function (\Throwable $exception = null) use ($process) {
@@ -231,8 +252,6 @@ class Cluster {
                     if ($exception) {
                         \fwrite(\STDERR, "The child died: " . $exception->getMessage() . "\r\n");
                     }
-
-                    $this->stop();
                 });
             }
         });
@@ -246,34 +265,37 @@ class Cluster {
             return;
         }
 
-        foreach ($this->workers as $worker) {
-            /** @var \Amp\Parallel\Context\Process $process */
-            $process = $this->workers[$worker];
+        return call(function () {
+            /** @var \Amp\Cluster\Internal\IpcParent $worker */
+            foreach ($this->workers as $worker) {
+                /** @var \Amp\Parallel\Context\Process $process */
+                $process = $this->workers[$worker];
 
-            if (!$process->isRunning()) {
-                continue;
-            }
+                if (!$process->isRunning()) {
+                    continue;
+                }
 
-            $process->signal(\defined("SIGINT") ? \SIGINT : 2);
+                yield $process->send(null);
 
-            $promise = Promise\timeout($process->join(), self::SHUTDOWN_TIMEOUT);
-            $promise->onResolve(static function ($exception) use ($process) {
-                if ($exception) {
-                    try {
+                $process->signal(\defined("SIGINT") ? \SIGINT : 2);
+
+                try {
+                    yield Promise\timeout($process->join(), self::SHUTDOWN_TIMEOUT);
+                } catch (\Throwable $exception) {
+                    if ($process->isRunning()) {
                         $process->kill();
-                    } catch (StatusError $e) {
-                        // ignore
                     }
                 }
-            });
-        }
+            }
 
-        $this->emitter->complete();
+            $this->running = false;
 
-        $this->server->close();
+            $this->emitter->complete();
 
-        $this->workers = new \SplObjectStorage;
-        $this->running = false;
+            $this->server->close();
+
+            $this->workers = new \SplObjectStorage;
+        });
     }
 
     /**

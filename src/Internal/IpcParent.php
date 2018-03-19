@@ -1,20 +1,23 @@
 <?php
 
-namespace Amp\Cluster;
+namespace Amp\Cluster\Internal;
 
 use Amp\Emitter;
 use Amp\Loop;
 use Amp\Parallel\Sync\Channel;
-use Amp\Parallel\Sync\ChannelledStream;
 use Amp\Promise;
 use Amp\Socket\Socket;
+use Psr\Log\LoggerInterface as PsrLogger;
 use function Amp\call;
 
-class Worker {
+class IpcParent {
     const PING_TIMEOUT = 10000;
 
     /** @var Socket */
     private $socket;
+
+    /** @var PsrLogger */
+    private $logger;
 
     /** @var Emitter */
     private $emitter;
@@ -28,12 +31,13 @@ class Worker {
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Channel $channel, Socket $socket, Emitter $emitter, callable $bind) {
+    public function __construct(Channel $channel, Socket $socket, PsrLogger $logger, Emitter $emitter, callable $bind) {
         $this->socket = $socket;
         $this->emitter = $emitter;
         $this->bind = $bind;
         $this->lastActivity = \time();
         $this->channel = $channel;
+        $this->logger = $logger;
     }
 
     public function run(): Promise {
@@ -85,6 +89,11 @@ class Worker {
                     $error = \error_get_last()["message"] ?? "Unknown error";
                     throw new \RuntimeException("Could not transfer socket: " . $error);
                 }
+                break;
+
+            case "log":
+                $payload = $message["payload"];
+                $this->logger->log($payload["level"], $payload["message"], [$payload["time"]]);
                 break;
 
             case "pong":
