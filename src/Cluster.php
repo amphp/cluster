@@ -7,7 +7,6 @@ use Amp\Cluster\Internal\IpcClient;
 use Amp\Emitter;
 use Amp\Iterator;
 use Amp\Log\Writer;
-use Amp\Loop;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
@@ -29,9 +28,6 @@ class Cluster {
 
     /** @var IpcClient */
     private static $client;
-
-    /** @var string[]|null */
-    private static $watchers;
 
     /** @var callable[]|null */
     private static $onClose = [];
@@ -68,6 +64,7 @@ class Cluster {
      */
     private static function init(Channel $channel, Socket\ClientSocket $socket) {
         self::$client = new IpcClient($channel, $socket);
+        self::$client->run()->onResolve(self::callableFromStaticMethod("terminate"));
     }
 
     /**
@@ -80,12 +77,6 @@ class Cluster {
 
         if (self::$client !== null) {
             self::$client = null;
-        }
-
-        if (self::$watchers !== null) {
-            foreach (self::$watchers as $watcher) {
-                Loop::cancel($watcher);
-            }
         }
 
         $onClose = self::$onClose;
@@ -164,22 +155,12 @@ class Cluster {
      * @throws \Amp\Loop\UnsupportedFeatureException
      */
     public static function onTerminate(callable $callable) {
-        if (self::$onClose === null) {
+        if (!self::isWorker()) {
             return;
         }
 
-        if (self::$watchers === null) {
-            self::$watchers = [];
-
-            $terminate = self::callableFromStaticMethod("terminate");
-
-            self::$watchers[] = Loop::onSignal(\defined("SIGINT") ? \SIGINT : 2, $terminate);
-            self::$watchers[] = Loop::onSignal(\defined("SIGQUIT") ? \SIGQUIT : 3, $terminate);
-            self::$watchers[] = Loop::onSignal(\defined("SIGTERM") ? \SIGTERM : 15, $terminate);
-
-            foreach (self::$watchers as $watcher) {
-                Loop::unreference($watcher);
-            }
+        if (self::$onClose === null) {
+            return;
         }
 
         self::$onClose[] = $callable;
@@ -245,14 +226,7 @@ class Cluster {
                 }
 
                 $worker = new Internal\IpcParent($process, $socket, $this->logger, $this->emitter, $this->bind);
-                $this->workers->attach($worker, $process);
-
-                $worker->run()->onResolve(function (\Throwable $exception = null) use ($process) {
-                    // TODO: If the cluster has not stopped, restart worker?
-                    if ($exception) {
-                        \fwrite(\STDERR, "The child died: " . $exception->getMessage() . "\r\n");
-                    }
-                });
+                $this->workers->attach($worker, [$process, $worker->run()]);
             }
         });
     }
@@ -260,33 +234,36 @@ class Cluster {
     /**
      * Stops the cluster.
      */
-    public function stop() {
+    public function stop(): Promise {
         if (!$this->running) {
-            return;
+            return new Success;
         }
 
         return call(function () {
+            $promises = [];
+
             /** @var \Amp\Cluster\Internal\IpcParent $worker */
             foreach ($this->workers as $worker) {
-                /** @var \Amp\Parallel\Context\Process $process */
-                $process = $this->workers[$worker];
+                $promises[] = call(function () use ($worker) {
+                    /** @var \Amp\Parallel\Context\Process $process */
+                    list($process, $promise) = $this->workers[$worker];
 
-                if (!$process->isRunning()) {
-                    continue;
-                }
-
-                yield $process->send(null);
-
-                $process->signal(\defined("SIGINT") ? \SIGINT : 2);
-
-                try {
-                    yield Promise\timeout($process->join(), self::SHUTDOWN_TIMEOUT);
-                } catch (\Throwable $exception) {
-                    if ($process->isRunning()) {
-                        $process->kill();
+                    if (!$process->isRunning()) {
+                        return;
                     }
-                }
+
+                    try {
+                        yield $process->send(null);
+                        yield Promise\timeout(yield $promise, self::SHUTDOWN_TIMEOUT);
+                    } catch (\Throwable $exception) {
+                        if ($process->isRunning()) {
+                            $process->kill();
+                        }
+                    }
+                });
             }
+
+            yield Promise\any($promises);
 
             $this->running = false;
 

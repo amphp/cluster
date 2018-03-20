@@ -12,11 +12,11 @@ final class IpcWriter implements Writer {
         $this->client = $client;
     }
 
-    public function log(int $time, string $level, string $message) {
+    public function log(string $level, string $message, array $context) {
         $this->client->send("log", [
-            "time" => $time,
             "level" => $level,
             "message" => $message,
+            "context" => $context,
         ]);
     }
 }

@@ -4,7 +4,7 @@ namespace Amp\Cluster\Internal;
 
 use Amp\Emitter;
 use Amp\Loop;
-use Amp\Parallel\Sync\Channel;
+use Amp\Parallel\Context\Context;
 use Amp\Promise;
 use Amp\Socket\Socket;
 use Psr\Log\LoggerInterface as PsrLogger;
@@ -25,18 +25,18 @@ class IpcParent {
     /** @var callable */
     private $bind;
 
-    /** @var Channel */
-    private $channel;
+    /** @var Context */
+    private $context;
 
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Channel $channel, Socket $socket, PsrLogger $logger, Emitter $emitter, callable $bind) {
+    public function __construct(Context $context, Socket $socket, PsrLogger $logger, Emitter $emitter, callable $bind) {
         $this->socket = $socket;
         $this->emitter = $emitter;
         $this->bind = $bind;
         $this->lastActivity = \time();
-        $this->channel = $channel;
+        $this->context = $context;
         $this->logger = $logger;
     }
 
@@ -46,7 +46,7 @@ class IpcParent {
                 if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                     $this->socket->close();
                 } else {
-                    $this->channel->send([
+                    $this->context->send([
                         "type" => "ping",
                         "payload" => null,
                     ]);
@@ -54,10 +54,12 @@ class IpcParent {
             });
 
             try {
-                while (null !== $message = yield $this->channel->receive()) {
+                while (null !== $message = yield $this->context->receive()) {
                     $this->lastActivity = \time();
                     $this->handleMessage($message);
                 }
+
+                return yield $this->context->join();
             } finally {
                 Loop::cancel($watcher);
 
@@ -76,7 +78,7 @@ class IpcParent {
             case "import-socket":
                 $uri = $message["payload"];
 
-                $this->channel->send(["type" => "import-socket", "payload" => null]);
+                $this->context->send(["type" => "import-socket", "payload" => null]);
 
                 $stream = ($this->bind)($uri);
                 $socket = \socket_import_stream($this->socket->getResource());
@@ -93,7 +95,7 @@ class IpcParent {
 
             case "log":
                 $payload = $message["payload"];
-                $this->logger->log($payload["level"], $payload["message"], [$payload["time"]]);
+                $this->logger->log($payload["level"], $payload["message"], $payload["context"]);
                 break;
 
             case "pong":

@@ -5,24 +5,23 @@ require dirname(__DIR__) . "/vendor/autoload.php";
 use Amp\Cluster\Cluster;
 use Amp\Log\Logger;
 use Amp\Loop;
-use function Amp\asyncCall;
 
 Loop::run(function () {
     /** @var \Amp\Socket\Server $server */
     $server = yield Cluster::listen("tcp://0.0.0.0:1337");
 
-    $logger = new Logger(Cluster::getLogWriter());
-    $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), \getmypid()));
+    $pid = \getmypid();
 
-    asyncCall(function () use ($server) {
-        /** @var \Amp\Socket\ClientSocket $client */
-        while ($client = yield $server->accept()) {
-            $client->write(\sprintf("Hello from PID %s!\n", \getmypid()));
-            $client->close();
-        }
-    });
+    $logger = new Logger(Cluster::getLogWriter());
+    $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $pid));
 
     Cluster::onTerminate(function () use ($server) {
         $server->close();
     });
+
+    /** @var \Amp\Socket\ClientSocket $client */
+    while ($client = yield $server->accept()) {
+        $logger->info(\sprintf("Accepted client on %s in PID %d", $server->getAddress(), $pid));
+        $client->end(\sprintf("Hello from PID %d!\n", $pid));
+    }
 });

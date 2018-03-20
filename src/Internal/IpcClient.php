@@ -7,8 +7,6 @@ use Amp\Loop;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
 use Amp\Socket\ClientSocket;
-use Amp\Success;
-use function Amp\asyncCall;
 use function Amp\call;
 
 final class IpcClient {
@@ -56,7 +54,16 @@ final class IpcClient {
 
         Loop::disable($this->importWatcher);
 
-        asyncCall(function () {
+    }
+
+    public function __destruct() {
+        if ($this->importWatcher !== null) {
+            Loop::cancel($this->importWatcher);
+        }
+    }
+
+    public function run(): Promise {
+        return call(function () {
             while (null !== $message = yield $this->channel->receive()) {
                 if ($message["type"] === "ping") {
                     yield $this->channel->send(["type" => "pong", "payload" => null]);
@@ -69,26 +76,18 @@ final class IpcClient {
         });
     }
 
-    public function __destruct() {
-        if ($this->importWatcher !== null) {
-            Loop::cancel($this->importWatcher);
-        }
-    }
-
     public function send(string $command, $data): Promise {
-        return call(function () use ($command, $data) {
-            yield $this->channel->send([
-                "type" => $command,
-                "payload" => $data,
-            ]);
+        $promise = $this->channel->send([
+            "type" => $command,
+            "payload" => $data,
+        ]);
 
-            if ($command === "import-socket") {
-                $deferred = new Deferred;
-                $this->pendingResponses->push($deferred);
-                return $deferred->promise();
-            }
+        if ($command === "import-socket") {
+            $deferred = new Deferred;
+            $this->pendingResponses->push($deferred);
+            return $deferred->promise();
+        }
 
-            return new Success;
-        });
+        return $promise;
     }
 }

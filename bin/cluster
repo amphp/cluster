@@ -20,7 +20,10 @@ Loop::run(function () use ($argv, $argc) {
 
     yield $cluster->start(countCpuCores());
 
-    Cluster::onTerminate(function () use ($cluster) {
-        $cluster->stop();
-    });
+    $iterator = $cluster->iterate();
+
+    // Not sure what to do with received data in the generic runner? Perhaps ignore?
+    while (yield $iterator->advance()) {
+        $logger->info("Received data from worker: " . $iterator->getCurrent());
+    }
 });
