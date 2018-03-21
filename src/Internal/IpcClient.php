@@ -53,7 +53,6 @@ final class IpcClient {
         });
 
         Loop::disable($this->importWatcher);
-
     }
 
     public function __destruct() {
@@ -85,7 +84,11 @@ final class IpcClient {
         if ($command === "import-socket") {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
-            return $deferred->promise();
+
+            return call(function () use ($promise, $deferred) {
+                yield $promise;
+                return yield $deferred->promise();
+            });
         }
 
         return $promise;

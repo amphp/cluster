@@ -70,9 +70,7 @@ class IpcParent {
     }
 
     private function handleMessage(array $message) {
-        if (!\array_key_exists("type", $message) || !\array_key_exists("payload", $message)) {
-            throw new \RuntimeException("Message error");
-        }
+        \assert(\array_key_exists("type", $message) && \array_key_exists("payload", $message));
 
         switch ($message["type"]) {
             case "import-socket":

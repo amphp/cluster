@@ -221,7 +221,11 @@ class Cluster {
                     /** @var Socket\ClientSocket $socket */
                     $socket = yield Promise\timeout($this->server->accept(), self::CONNECT_TIMEOUT);
                 } catch (\Throwable $exception) {
-                    $this->stop();
+                    if ($process->isRunning()) {
+                        $process->kill();
+                    }
+
+                    yield $this->stop();
                     throw $exception;
                 }
 
@@ -239,6 +243,8 @@ class Cluster {
             return new Success;
         }
 
+        $this->running = false;
+
         return call(function () {
             $promises = [];
 
@@ -254,7 +260,7 @@ class Cluster {
 
                     try {
                         yield $process->send(null);
-                        yield Promise\timeout(yield $promise, self::SHUTDOWN_TIMEOUT);
+                        yield Promise\timeout($promise, self::SHUTDOWN_TIMEOUT);
                     } catch (\Throwable $exception) {
                         if ($process->isRunning()) {
                             $process->kill();
@@ -264,8 +270,6 @@ class Cluster {
             }
 
             yield Promise\any($promises);
-
-            $this->running = false;
 
             $this->emitter->complete();
 
