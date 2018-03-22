@@ -19,12 +19,16 @@ final class IpcClient {
     /** @var Channel */
     private $channel;
 
+    /** @var callable */
+    private $onData;
+
     /** @var \SplQueue */
     private $pendingResponses;
 
-    public function __construct(Channel $channel, ClientSocket $socket) {
+    public function __construct(Channel $channel, ClientSocket $socket, callable $onData) {
         $this->socket = $socket = $socket->getResource();
         $this->channel = $channel;
+        $this->onData = $onData;
         $this->pendingResponses = $pendingResponses = new \SplQueue;
 
         $this->importWatcher = Loop::onReadable($this->socket, static function ($watcher) use ($socket, $pendingResponses) {
@@ -64,33 +68,45 @@ final class IpcClient {
     public function run(): Promise {
         return call(function () {
             while (null !== $message = yield $this->channel->receive()) {
-                if ($message["type"] === "ping") {
-                    yield $this->channel->send(["type" => "pong", "payload" => null]);
-                } elseif ($message["type"] === "import-socket") {
-                    Loop::enable($this->importWatcher);
-                }
+                $this->handleMessage($message);
             }
 
             yield $this->channel->send(null);
         });
     }
 
-    public function send(string $command, $data): Promise {
-        $promise = $this->channel->send([
-            "type" => $command,
-            "payload" => $data,
-        ]);
+    private function handleMessage(array $message) {
+        \assert(\array_key_exists("type", $message) && \array_key_exists("payload", $message));
 
-        if ($command === "import-socket") {
+        switch ($message["type"]) {
+            case "ping":
+                yield $this->channel->send(["type" => "pong", "payload" => null]);
+                break;
+
+            case "import-socket":
+                Loop::enable($this->importWatcher);
+                break;
+
+            case "data":
+                ($this->onData)($message["payload"]);
+        }
+    }
+
+    public function importSocket(string $uri) {
+        return call(function () use ($uri) {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
 
-            return call(function () use ($promise, $deferred) {
-                yield $promise;
-                return yield $deferred->promise();
-            });
-        }
+            yield $this->send("import-socket", $uri);
 
-        return $promise;
+            return yield $deferred->promise();
+        });
+    }
+
+    public function send(string $command, $data): Promise {
+        return $this->channel->send([
+            "type" => $command,
+            "payload" => $data,
+        ]);
     }
 }

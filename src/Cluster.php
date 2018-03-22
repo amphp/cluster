@@ -7,6 +7,7 @@ use Amp\Cluster\Internal\IpcClient;
 use Amp\Emitter;
 use Amp\Iterator;
 use Amp\Log\Writer;
+use Amp\Loop;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
@@ -31,6 +32,9 @@ class Cluster {
 
     /** @var callable[]|null */
     private static $onClose = [];
+
+    /** @var callable[] */
+    private static $onMessage = [];
 
     /** @var resource[] */
     private static $sockets = [];
@@ -63,7 +67,7 @@ class Cluster {
      * @param Socket\ClientSocket $socket
      */
     private static function init(Channel $channel, Socket\ClientSocket $socket) {
-        self::$client = new IpcClient($channel, $socket);
+        self::$client = new IpcClient($channel, $socket, self::callableFromStaticMethod("onReceivedMessage"));
         self::$client->run()->onResolve(self::callableFromStaticMethod("terminate"));
     }
 
@@ -115,7 +119,7 @@ class Cluster {
         }
 
         return call(function () use ($uri, $listenContext, $tlsContext) {
-            $socket = yield self::$client->send("import-socket", $uri);
+            $socket = yield self::$client->importSocket($uri);
 
             return self::listenOnSocket($socket, $listenContext, $tlsContext);
         });
@@ -136,13 +140,40 @@ class Cluster {
     }
 
     /**
+     * Internal callback triggered when a message is received from the parent.
+     *
+     * @param $data
+     */
+    private static function onReceivedMessage($data) {
+        foreach (self::$onMessage as $callback) {
+            try {
+                $callback($data);
+            } catch (\Throwable $exception) {
+                Loop::defer(function () use ($exception) {
+                    throw $exception;
+                });
+            }
+        }
+    }
+
+    /**
+     * Attaches a callback to be invoked when a message is received from the parent process.
+     *
+     * @param callable $callback
+     */
+    public static function onMessage(callable $callback) {
+        self::$onMessage[] = $callback;
+    }
+
+    /**
      * @param mixed $data Send data to the parent.
      *
      * @return Promise
      */
     public static function send($data): Promise {
         if (!self::isWorker()) {
-            return new Success; // What should this do in the parent?
+            self::onReceivedMessage($data);
+            return new Success;
         }
 
         return self::$client->send("data", $data);
@@ -280,6 +311,24 @@ class Cluster {
     }
 
     /**
+     * Broadcast data to all workers, triggering any callbacks registered with Cluster::onMessage().
+     *
+     * @param mixed $data
+     *
+     * @return Promise Resolved once data has been sent to all workers.
+     */
+    public function broadcast($data): Promise {
+        $promises = [];
+        /** @var \Amp\Cluster\Internal\IpcParent $worker */
+        foreach ($this->workers as $worker) {
+            $promises[] = $worker->send($data);
+        }
+        return Promise\all($promises);
+    }
+
+    /**
+     * Returns an iterator of messages received from any worker.
+     *
      * @return \Amp\Iterator
      *
      * @throws \Error If the cluster has not been started.

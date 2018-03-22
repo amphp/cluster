@@ -40,6 +40,10 @@ class IpcParent {
         $this->logger = $logger;
     }
 
+    public function send($data): Promise {
+        return $this->context->send(["type" => "data", "payload" => $data]);
+    }
+
     public function run(): Promise {
         return call(function () {
             $watcher = Loop::repeat(self::PING_TIMEOUT / 2, function () {
