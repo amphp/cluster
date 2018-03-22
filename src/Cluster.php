@@ -67,6 +67,7 @@ class Cluster {
     private $workers;
 
     /**
+     * @param Channel             $channel
      * @param Socket\ClientSocket $socket
      */
     private static function init(Channel $channel, Socket\ClientSocket $socket) {
@@ -296,10 +297,10 @@ class Cluster {
         return call(function () {
             $promises = [];
 
-            /** @var \Amp\Cluster\Internal\IpcParent $worker */
+            /** @var Internal\IpcParent $worker */
             foreach ($this->workers as $worker) {
                 $promises[] = call(function () use ($worker) {
-                    /** @var \Amp\Parallel\Context\Process $process */
+                    /** @var Process $process */
                     list($process, $promise) = $this->workers[$worker];
 
                     if (!$process->isRunning()) {
@@ -336,7 +337,7 @@ class Cluster {
      */
     public function broadcast($data): Promise {
         $promises = [];
-        /** @var \Amp\Cluster\Internal\IpcParent $worker */
+        /** @var Internal\IpcParent $worker */
         foreach ($this->workers as $worker) {
             $promises[] = $worker->send($data);
         }
