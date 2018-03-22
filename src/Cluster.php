@@ -9,7 +9,6 @@ use Amp\Emitter;
 use Amp\Iterator;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
-use Amp\Loop;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
@@ -19,6 +18,7 @@ use Amp\Success;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Handler\NullHandler;
 use Psr\Log\LogLevel;
+use function Amp\asyncCall;
 use function Amp\call;
 
 class Cluster {
@@ -77,10 +77,12 @@ class Cluster {
 
     /**
      * Invokes any termination callbacks.
+     *
+     * @return Promise|null
      */
-    private static function terminate() {
+    private static function terminate() { /* ?Promise */
         if (self::$onClose === null) {
-            return;
+            return null;
         }
 
         if (self::$client !== null) {
@@ -90,9 +92,11 @@ class Cluster {
         $onClose = self::$onClose;
         self::$onClose = null;
 
+        $promises = [];
         foreach ($onClose as $callable) {
-            $callable();
+            $promises[] = call($callable);
         }
+        return Promise\all($promises);
     }
 
     /**
@@ -156,17 +160,11 @@ class Cluster {
     /**
      * Internal callback triggered when a message is received from the parent.
      *
-     * @param $data
+     * @param mixed $data
      */
     private static function onReceivedMessage($data) {
         foreach (self::$onMessage as $callback) {
-            try {
-                $callback($data);
-            } catch (\Throwable $exception) {
-                Loop::defer(function () use ($exception) {
-                    throw $exception;
-                });
-            }
+            asyncCall($callback, $data);
         }
     }
 
@@ -195,9 +193,6 @@ class Cluster {
 
     /**
      * @param callable $callable Callable to invoke to shutdown the process.
-     *
-     * @throws Loop\InvalidWatcherError
-     * @throws Loop\UnsupportedFeatureException
      */
     public static function onTerminate(callable $callable) {
         if (!self::isWorker()) {
