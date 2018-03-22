@@ -60,7 +60,7 @@ class IpcParent {
             try {
                 while (null !== $message = yield $this->context->receive()) {
                     $this->lastActivity = \time();
-                    $this->handleMessage($message);
+                    yield from $this->handleMessage($message);
                 }
 
                 return yield $this->context->join();
@@ -79,6 +79,8 @@ class IpcParent {
         switch ($message["type"]) {
             case "import-socket":
                 $uri = $message["payload"];
+
+                yield $this->context->send(["type" => "import-socket", "payload" => null]);
 
                 $stream = ($this->bind)($uri);
                 $socket = \socket_import_stream($this->socket->getResource());

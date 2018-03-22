@@ -68,19 +68,23 @@ final class IpcClient {
     public function run(): Promise {
         return call(function () {
             while (null !== $message = yield $this->channel->receive()) {
-                $this->handleMessage($message);
+                yield from $this->handleMessage($message);
             }
 
             yield $this->channel->send(null);
         });
     }
 
-    private function handleMessage(array $message) {
+    private function handleMessage(array $message): \Generator {
         \assert(\array_key_exists("type", $message) && \array_key_exists("payload", $message));
 
         switch ($message["type"]) {
             case "ping":
                 yield $this->channel->send(["type" => "pong", "payload" => null]);
+                break;
+
+            case "import-socket":
+                Loop::enable($this->importWatcher);
                 break;
 
             case "data":
@@ -96,7 +100,6 @@ final class IpcClient {
         return call(function () use ($uri) {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
-            Loop::enable($this->importWatcher);
 
             yield $this->send("import-socket", $uri);
 
