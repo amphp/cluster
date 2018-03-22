@@ -3,8 +3,8 @@
 require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\Cluster\Cluster;
-use Amp\Log\Logger;
 use Amp\Loop;
+use Monolog\Logger;
 
 Loop::run(function () {
     /** @var \Amp\Socket\Server $server */
@@ -12,7 +12,9 @@ Loop::run(function () {
 
     $pid = \getmypid();
 
-    $logger = new Logger(Cluster::getLogWriter());
+    $logger = new Logger('test-worker');
+    $logger->pushHandler(Cluster::getLogHandler());
+
     $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $pid));
 
     Cluster::onTerminate(function () use ($server) {

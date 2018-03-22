@@ -3,10 +3,12 @@
 
 require dirname(__DIR__) . "/vendor/autoload.php";
 
+use Amp\ByteStream\ResourceOutputStream;
 use Amp\Cluster\Cluster;
-use Amp\Log\Logger;
-use Amp\Log\Writer\ConsoleWriter;
 use Amp\Loop;
+use Amp\Log\StreamHandler;
+use Amp\Log\ConsoleFormatter;
+use Monolog\Logger;
 use function Amp\Cluster\countCpuCores;
 
 Loop::run(function () use ($argv, $argc) {
@@ -15,7 +17,11 @@ Loop::run(function () use ($argv, $argc) {
         exit(1);
     }
 
-    $logger = new Logger(new ConsoleWriter);
+    $handler = new StreamHandler(new ResourceOutputStream(STDOUT));
+    $handler->setFormatter(new ConsoleFormatter);
+    $logger = new Logger('Console');
+    $logger->pushHandler($handler);
+
     $cluster = new Cluster($argv[1], $logger);
 
     yield $cluster->start(countCpuCores());

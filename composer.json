@@ -37,6 +37,7 @@
         "amphp/parallel": "^0.2.4",
         "amphp/socket": "^0.10.6",
         "league/climate": "^3",
+        "monolog/monolog": "^1.23",
         "psr/log": "^1"
     },
     "require-dev": {

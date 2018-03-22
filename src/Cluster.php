@@ -2,11 +2,13 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ResourceOutputStream;
 use Amp\CallableMaker;
 use Amp\Cluster\Internal\IpcClient;
 use Amp\Emitter;
 use Amp\Iterator;
-use Amp\Log\Writer;
+use Amp\Log\ConsoleFormatter;
+use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
@@ -14,7 +16,9 @@ use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
 use Amp\Success;
+use Monolog\Handler\HandlerInterface as MonologHandler;
 use Psr\Log\LoggerInterface as PsrLogger;
+use Psr\Log\LogLevel;
 use Psr\Log\NullLogger;
 use function Amp\call;
 
@@ -126,17 +130,19 @@ class Cluster {
     }
 
     /**
-     * @param \Amp\Log\Writer|null $writer Writer used if not running as a cluster. An instance of ConsoleWriter is
-     *     returned if null.
+     * @param string $level
+     * @param bool   $bubble
      *
-     * @return \Amp\Log\Writer
+     * @return MonologHandler
      */
-    public static function getLogWriter(Writer $writer = null): Writer {
+    public static function getLogHandler(string $level = LogLevel::INFO, bool $bubble = true): MonologHandler {
         if (!self::isWorker()) {
-            return $writer ?? new Writer\ConsoleWriter;
+            $handler = new StreamHandler(new ResourceOutputStream(\STDOUT), $level, $bubble);
+            $handler->setFormatter(new ConsoleFormatter);
+            return $handler;
         }
 
-        return new Internal\IpcWriter(self::$client);
+        return new Internal\IpcHandler(self::$client, $level, $bubble);
     }
 
     /**
