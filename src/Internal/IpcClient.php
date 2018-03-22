@@ -83,12 +83,12 @@ final class IpcClient {
                 yield $this->channel->send(["type" => "pong", "payload" => null]);
                 break;
 
-            case "import-socket":
-                Loop::enable($this->importWatcher);
-                break;
-
             case "data":
                 ($this->onData)($message["payload"]);
+                break;
+
+            default:
+                throw new \UnexpectedValueException("Unexpected message type");
         }
     }
 
@@ -96,6 +96,7 @@ final class IpcClient {
         return call(function () use ($uri) {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
+            Loop::enable($this->importWatcher);
 
             yield $this->send("import-socket", $uri);
 

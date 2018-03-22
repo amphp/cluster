@@ -80,8 +80,6 @@ class IpcParent {
             case "import-socket":
                 $uri = $message["payload"];
 
-                $this->context->send(["type" => "import-socket", "payload" => null]);
-
                 $stream = ($this->bind)($uri);
                 $socket = \socket_import_stream($this->socket->getResource());
 
