@@ -7,6 +7,7 @@ use Amp\Loop;
 use Amp\Parallel\Context\Context;
 use Amp\Promise;
 use Amp\Socket\Socket;
+use Monolog\Handler\HandlerInterface;
 use Psr\Log\LoggerInterface as PsrLogger;
 use function Amp\call;
 
@@ -31,7 +32,7 @@ class IpcParent {
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Context $context, Socket $socket, PsrLogger $logger, Emitter $emitter, callable $bind) {
+    public function __construct(Context $context, Socket $socket, HandlerInterface $logger, Emitter $emitter, callable $bind) {
         $this->socket = $socket;
         $this->emitter = $emitter;
         $this->bind = $bind;
@@ -96,8 +97,7 @@ class IpcParent {
                 break;
 
             case "log":
-                $payload = $message["payload"];
-                $this->logger->log($payload["level"], $payload["message"], $payload["context"]);
+                $this->logger->handle($message["payload"]);
                 break;
 
             case "pong":

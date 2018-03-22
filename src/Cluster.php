@@ -16,10 +16,9 @@ use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
 use Amp\Success;
-use Monolog\Handler\HandlerInterface as MonologHandler;
-use Psr\Log\LoggerInterface as PsrLogger;
+use Monolog\Handler\HandlerInterface;
+use Monolog\Handler\NullHandler;
 use Psr\Log\LogLevel;
-use Psr\Log\NullLogger;
 use function Amp\call;
 
 class Cluster {
@@ -49,8 +48,8 @@ class Cluster {
     /** @var string[] */
     private $script;
 
-    /** @var PsrLogger */
-    private $logger;
+    /** @var HandlerInterface */
+    private $logHandler;
 
     /** @var string Socket server URI */
     private $uri;
@@ -130,19 +129,30 @@ class Cluster {
     }
 
     /**
-     * @param string $level
-     * @param bool   $bubble
+     * @param HandlerInterface|null $handler Handler used if not running as a cluster. A default stream handler is
+     *     created otherwise.
+     * @param string                $logLevel Log level for the IPC handler and for the default handler if no handler
+     *     is given.
+     * @param bool                  $bubble Bubble flag for the IPC handler and for the default handler if no handler
+     *     is given.
      *
-     * @return MonologHandler
+     * @return HandlerInterface
      */
-    public static function getLogHandler(string $level = LogLevel::INFO, bool $bubble = true): MonologHandler {
+    public static function getLogHandler(
+        HandlerInterface $handler = null,
+        string $logLevel = LogLevel::DEBUG,
+        bool $bubble = false
+    ): HandlerInterface {
         if (!self::isWorker()) {
-            $handler = new StreamHandler(new ResourceOutputStream(\STDOUT), $level, $bubble);
-            $handler->setFormatter(new ConsoleFormatter);
-            return $handler;
+            return $handler ?? (function () use ($logLevel, $bubble) {
+                $handler = new StreamHandler(new ResourceOutputStream(\STDOUT), $logLevel, $bubble);
+                $handler->setFormatter(new ConsoleFormatter);
+
+                return $handler;
+            })();
         }
 
-        return new Internal\IpcHandler(self::$client, $level, $bubble);
+        return new Internal\IpcLogHandler(self::$client, $logLevel, $bubble);
     }
 
     /**
@@ -188,8 +198,8 @@ class Cluster {
     /**
      * @param callable $callable Callable to invoke to shutdown the process.
      *
-     * @throws \Amp\Loop\InvalidWatcherError
-     * @throws \Amp\Loop\UnsupportedFeatureException
+     * @throws Loop\InvalidWatcherError
+     * @throws Loop\UnsupportedFeatureException
      */
     public static function onTerminate(callable $callable) {
         if (!self::isWorker()) {
@@ -204,14 +214,15 @@ class Cluster {
     }
 
     /**
-     * @param string|string[] $script Script path and optional arguments.
+     * @param string|string[]  $script Script path and optional arguments.
+     * @param HandlerInterface $logHandler
      */
-    public function __construct($script, PsrLogger $logger = null) {
+    public function __construct($script, HandlerInterface $logHandler) {
         if (self::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
         }
 
-        $this->logger = $logger ?? new NullLogger;
+        $this->logHandler = $logHandler ?? new NullHandler;
 
         $this->uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
 
@@ -266,7 +277,7 @@ class Cluster {
                     throw $exception;
                 }
 
-                $worker = new Internal\IpcParent($process, $socket, $this->logger, $this->emitter, $this->bind);
+                $worker = new Internal\IpcParent($process, $socket, $this->logHandler, $this->emitter, $this->bind);
                 $this->workers->attach($worker, [$process, $worker->run()]);
             }
         });
