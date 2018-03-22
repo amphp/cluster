@@ -114,8 +114,6 @@ class Cluster {
         Socket\ServerListenContext $listenContext = null,
         Socket\ServerTlsContext $tlsContext = null
     ): Promise {
-        // TODO: Add condition for systems where SO_REUSEPORT is supported to simply return from Socket\listen().
-
         if (!self::isWorker()) {
             $socket = self::bindSocket($uri);
             $socket = \socket_import_stream($socket);
@@ -124,7 +122,6 @@ class Cluster {
 
         return call(function () use ($uri, $listenContext, $tlsContext) {
             $socket = yield self::$client->importSocket($uri);
-
             return self::listenOnSocket($socket, $listenContext, $tlsContext);
         });
     }

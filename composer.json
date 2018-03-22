@@ -30,10 +30,11 @@
         }
     ],
     "require": {
+        "ext-socket": "*",
         "php": ">=7.0.7",
         "amphp/amp": "^2",
         "amphp/byte-stream": "^1.3",
-        "amphp/log": "dev-master as 0.1",
+        "amphp/log": "^1",
         "amphp/parallel": "^0.2.4",
         "amphp/socket": "^0.10.6",
         "league/climate": "^3",
