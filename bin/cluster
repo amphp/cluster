@@ -1,13 +1,38 @@
 #!/usr/bin/env php
 <?php
 
-require dirname(__DIR__) . "/vendor/autoload.php";
-
-use Amp\ByteStream\ResourceOutputStream;
 use Amp\Cluster\Cluster;
 use Amp\Loop;
 use Monolog\Logger;
 use function Amp\Cluster\countCpuCores;
+
+// some command line SAPIs (e.g. phpdbg) don't have that function
+if (function_exists("cli_set_process_title")) {
+    @cli_set_process_title("amp-cluster");
+}
+
+error_reporting(E_ALL);
+
+(function () {
+    $paths = [
+        dirname(__DIR__, 3) . "/autoload.php",
+        dirname(__DIR__) . "/vendor/autoload.php",
+    ];
+
+    foreach ($paths as $path) {
+        if (file_exists($path)) {
+            $autoloadPath = $path;
+            break;
+        }
+    }
+
+    if (!isset($autoloadPath)) {
+        fwrite(STDERR, "Could not locate autoload.php");
+        exit(1);
+    }
+
+    require $autoloadPath;
+})();
 
 Loop::run(function () use ($argv, $argc) {
     if ($argc !== 2) {
