@@ -365,8 +365,14 @@ class Cluster {
             @\unlink(\substr($uri, 7));
         }
 
+        $context = \stream_context_create([
+            "socket" => [
+                "ipv6_v6only" => true,
+            ],
+        ]);
+
         // Do NOT use STREAM_SERVER_LISTEN here - we explicitly invoke \socket_listen() in our worker processes
-        if (!$socket = \stream_socket_server($uri, $errno, $errstr, STREAM_SERVER_BIND)) {
+        if (!$socket = \stream_socket_server($uri, $errno, $errstr, STREAM_SERVER_BIND, $context)) {
             throw new \RuntimeException(\sprintf("Failed binding socket on %s: [Err# %s] %s", $uri, $errno, $errstr));
         }
 
