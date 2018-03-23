@@ -87,6 +87,15 @@ final class IpcClient {
                 Loop::enable($this->importWatcher);
                 break;
 
+            case "select-port":
+                if ($this->pendingResponses->isEmpty()) {
+                    throw new \RuntimeException("Unexpected select-port message.");
+                }
+
+                $deferred = $this->pendingResponses->shift();
+                $deferred->resolve($message["payload"]);
+                break;
+
             case "data":
                 ($this->onData)($message["payload"]);
                 break;
@@ -102,6 +111,17 @@ final class IpcClient {
             $this->pendingResponses->push($deferred);
 
             yield $this->send("import-socket", $uri);
+
+            return yield $deferred->promise();
+        });
+    }
+
+    public function selectPort(string $uri): Promise {
+        return call(function () use ($uri) {
+            $deferred = new Deferred;
+            $this->pendingResponses->push($deferred);
+
+            yield $this->send("select-port", $uri);
 
             return yield $deferred->promise();
         });

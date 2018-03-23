@@ -118,13 +118,32 @@ class Cluster {
         Socket\ServerListenContext $listenContext = null,
         Socket\ServerTlsContext $tlsContext = null
     ): Promise {
-        if (!self::isWorker()) {
-            $socket = self::bindSocket($uri);
-            $socket = \socket_import_stream($socket);
-            return new Success(self::listenOnSocket($socket, $listenContext, $tlsContext));
-        }
+        $listenContext = $listenContext ?? new Socket\ServerListenContext;
 
         return call(function () use ($uri, $listenContext, $tlsContext) {
+            if (!self::isWorker()) {
+                if (canReusePort()) {
+                    $listenContext = $listenContext->withReusePort();
+                    return Socket\listen($uri, $listenContext, $tlsContext);
+                }
+
+                $socket = self::bindSocket($uri);
+                $socket = \socket_import_stream($socket);
+                return self::listenOnSocket($socket, $listenContext, $tlsContext);
+            }
+
+            if (canReusePort()) {
+                $position = \strrpos($uri, ":");
+                $port = $position ? (int) \substr($uri, $position) : 0;
+
+                if ($port === 0) {
+                    $uri = yield self::$client->selectPort($uri);
+                }
+
+                $listenContext = $listenContext->withReusePort();
+                return Socket\listen($uri, $listenContext, $tlsContext);
+            }
+
             $socket = yield self::$client->importSocket($uri);
             return self::listenOnSocket($socket, $listenContext, $tlsContext);
         });
@@ -367,6 +386,8 @@ class Cluster {
 
         $context = \stream_context_create([
             "socket" => [
+                "so_reuseaddr" => \stripos(PHP_OS, "WIN") === 0, // SO_REUSEADDR has SO_REUSEPORT semantics on Windows
+                "so_reuseport" => canReusePort(),
                 "ipv6_v6only" => true,
             ],
         ]);
@@ -391,8 +412,6 @@ class Cluster {
         Socket\ServerListenContext $listenContext = null,
         Socket\ServerTlsContext $tlsContext = null
     ): Server {
-        $listenContext = $listenContext ?? new Socket\ServerListenContext;
-
         if ($tlsContext) {
             $context = \array_merge(
                 $listenContext->toStreamContextArray(),

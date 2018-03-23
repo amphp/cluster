@@ -4,6 +4,8 @@ namespace Amp\Cluster;
 
 /**
  * Determine the total number of CPU cores on the system.
+ *
+ * @return int
  */
 function countCpuCores(): int {
     static $cores;
@@ -43,24 +45,27 @@ function countCpuCores(): int {
     return $cores;
 }
 
-function hasColorSupport(): bool {
+/**
+ * Determine if SO_REUSEPORT is supported on the system.
+ *
+ * @TODO Placeholder, proper implementation needed.
+ *
+ * @return bool
+ */
+function canReusePort(): bool {
+    static $canReusePort;
+
+    if ($canReusePort !== null) {
+        return $canReusePort;
+    }
+
     $os = (\stripos(\PHP_OS, "WIN") === 0) ? "win" : \strtolower(\PHP_OS);
 
-    // @see https://github.com/symfony/symfony/blob/v4.0.6/src/Symfony/Component/Console/Output/StreamOutput.php#L91
-    // @license https://github.com/symfony/symfony/blob/v4.0.6/LICENSE
-    if ($os === 'win') {
-        $windowsVersion = PHP_WINDOWS_VERSION_MAJOR . '.' . PHP_WINDOWS_VERSION_MINOR . '.' . PHP_WINDOWS_VERSION_BUILD;
+    switch ($os) {
+        case "win":
+            return $canReusePort = true;
 
-        return \function_exists('sapi_windows_vt100_support') && @\sapi_windows_vt100_support(\STDOUT)
-            || \version_compare($windowsVersion, '10.0.10586', '>=')
-            || false !== \getenv('ANSICON')
-            || 'ON' === \getenv('ConEmuANSI')
-            || 'xterm' === \getenv('TERM');
+        default:
+            return $canReusePort = false;
     }
-
-    if (\function_exists('posix_isatty')) {
-        return @\posix_isatty(\STDOUT);
-    }
-
-    return false;
 }

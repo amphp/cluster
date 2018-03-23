@@ -96,6 +96,13 @@ class IpcParent {
                 }
                 break;
 
+            case "select-port":
+                $uri = $message["payload"];
+                $stream = ($this->bind)($uri);
+                $uri = \stream_socket_get_name($stream, false);
+                yield $this->context->send(["type" => "select-port", "payload" => $uri]);
+                break;
+
             case "log":
                 $this->logger->handle($message["payload"]);
                 break;
