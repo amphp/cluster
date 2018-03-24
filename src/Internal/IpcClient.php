@@ -10,8 +10,10 @@ use Amp\Socket\ClientSocket;
 use function Amp\call;
 
 final class IpcClient {
-    /** @var resource */
-    private $socket;
+    const TYPE_PING = 0;
+    const TYPE_DATA = 1;
+    const TYPE_IMPORT_SOCKET = 2;
+    const TYPE_SELECT_PORT = 3;
 
     /** @var string|null */
     private $importWatcher;
@@ -26,12 +28,11 @@ final class IpcClient {
     private $pendingResponses;
 
     public function __construct(Channel $channel, ClientSocket $socket, callable $onData) {
-        $this->socket = $socket = $socket->getResource();
         $this->channel = $channel;
         $this->onData = $onData;
         $this->pendingResponses = $pendingResponses = new \SplQueue;
 
-        $this->importWatcher = Loop::onReadable($this->socket, static function ($watcher) use ($socket, $pendingResponses) {
+        $this->importWatcher = Loop::onReadable($socket->getResource(), static function ($watcher, $socket) use ($pendingResponses) {
             if ($pendingResponses->isEmpty()) {
                 throw new \RuntimeException("Unexpected import-socket message.");
             }
@@ -76,28 +77,28 @@ final class IpcClient {
     }
 
     private function handleMessage(array $message): \Generator {
-        \assert(\array_key_exists("type", $message) && \array_key_exists("payload", $message));
+        \assert(\count($message) >= 1);
 
-        switch ($message["type"]) {
-            case "ping":
-                yield $this->channel->send(["type" => "pong", "payload" => null]);
+        switch ($message[0]) {
+            case self::TYPE_PING:
+                yield $this->channel->send([self::TYPE_PING]);
                 break;
 
-            case "import-socket":
+            case self::TYPE_IMPORT_SOCKET:
                 Loop::enable($this->importWatcher);
                 break;
 
-            case "select-port":
+            case self::TYPE_SELECT_PORT:
                 if ($this->pendingResponses->isEmpty()) {
                     throw new \RuntimeException("Unexpected select-port message.");
                 }
 
                 $deferred = $this->pendingResponses->shift();
-                $deferred->resolve($message["payload"]);
+                $deferred->resolve($message[1]);
                 break;
 
-            case "data":
-                ($this->onData)($message["payload"]);
+            case self::TYPE_DATA:
+                ($this->onData)($message[1], $message[2]);
                 break;
 
             default:
@@ -110,7 +111,7 @@ final class IpcClient {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
 
-            yield $this->send("import-socket", $uri);
+            yield $this->channel->send([self::TYPE_IMPORT_SOCKET, $uri]);
 
             return yield $deferred->promise();
         });
@@ -121,16 +122,13 @@ final class IpcClient {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
 
-            yield $this->send("select-port", $uri);
+            yield $this->channel->send([self::TYPE_SELECT_PORT, $uri]);
 
             return yield $deferred->promise();
         });
     }
 
-    public function send(string $command, $data): Promise {
-        return $this->channel->send([
-            "type" => $command,
-            "payload" => $data,
-        ]);
+    public function send(string $event, $data): Promise {
+        return $this->channel->send([self::TYPE_DATA, $event, $data]);
     }
 }

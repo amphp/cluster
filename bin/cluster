@@ -2,6 +2,7 @@
 <?php
 
 use Amp\Cluster\Cluster;
+use function Amp\Cluster\createLogHandler;
 use Amp\Cluster\Watcher;
 use Amp\Loop;
 use Monolog\Logger;
@@ -110,7 +111,7 @@ Loop::run(function () use ($argv, $arguments, $help) {
 
     $logger = new Logger('cluster');
 
-    $logHandler = Cluster::getLogHandler(null, $level);
+    $logHandler = createLogHandler(null, $level);
     $logger->pushHandler($logHandler);
 
     if ($arguments->defined("workers")) {
@@ -129,13 +130,9 @@ Loop::run(function () use ($argv, $arguments, $help) {
     $logger->info("Starting cluster with " . $workers . " workers");
 
     $watcher = new Watcher($arguments->get("script"), $logHandler);
+    $watcher->onMessage("log", function ($record) use ($logHandler) {
+        $logHandler->handle($record);
+    });
 
     yield $watcher->start($workers);
-
-    $iterator = $watcher->iterate();
-
-    // Not sure what to do with received data in the generic runner? Perhaps ignore?
-    while (yield $iterator->advance()) {
-        $logger->info("Received data from worker: " . $iterator->getCurrent());
-    }
 });

@@ -2,13 +2,11 @@
 
 namespace Amp\Cluster\Internal;
 
-use Amp\Emitter;
 use Amp\Loop;
 use Amp\Parallel\Context\Context;
 use Amp\Promise;
 use Amp\Socket\Socket;
 use Monolog\Handler\HandlerInterface;
-use Psr\Log\LoggerInterface as PsrLogger;
 use function Amp\call;
 
 class IpcParent {
@@ -17,14 +15,11 @@ class IpcParent {
     /** @var Socket */
     private $socket;
 
-    /** @var PsrLogger */
-    private $logger;
-
-    /** @var Emitter */
-    private $emitter;
-
     /** @var callable */
     private $bind;
+
+    /** @var callable */
+    private $onData;
 
     /** @var Context */
     private $context;
@@ -32,17 +27,16 @@ class IpcParent {
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Context $context, Socket $socket, HandlerInterface $logger, Emitter $emitter, callable $bind) {
+    public function __construct(Context $context, Socket $socket, HandlerInterface $logger, callable $bind, callable $onData) {
         $this->socket = $socket;
-        $this->emitter = $emitter;
         $this->bind = $bind;
+        $this->onData = $onData;
         $this->lastActivity = \time();
         $this->context = $context;
-        $this->logger = $logger;
     }
 
-    public function send($data): Promise {
-        return $this->context->send(["type" => "data", "payload" => $data]);
+    public function send(string $event, $data = null): Promise {
+        return $this->context->send([IpcClient::TYPE_DATA, $event, $data]);
     }
 
     public function run(): Promise {
@@ -51,10 +45,7 @@ class IpcParent {
                 if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                     $this->socket->close();
                 } else {
-                    $this->context->send([
-                        "type" => "ping",
-                        "payload" => null,
-                    ]);
+                    $this->context->send([IpcClient::TYPE_PING]);
                 }
             });
 
@@ -75,13 +66,11 @@ class IpcParent {
     }
 
     private function handleMessage(array $message): \Generator {
-        \assert(\array_key_exists("type", $message) && \array_key_exists("payload", $message));
+        \assert(\count($message) >= 1);
 
-        switch ($message["type"]) {
-            case "import-socket":
-                $uri = $message["payload"];
-
-                yield $this->context->send(["type" => "import-socket", "payload" => null]);
+        switch ($message[0]) {
+            case IpcClient::TYPE_IMPORT_SOCKET:
+                $uri = $message[1];
 
                 $stream = ($this->bind)($uri);
                 $socket = \socket_import_stream($this->socket->getResource());
@@ -94,24 +83,22 @@ class IpcParent {
                     $error = \error_get_last()["message"] ?? "Unknown error";
                     throw new \RuntimeException("Could not transfer socket: " . $error);
                 }
+
+                yield $this->context->send([IpcClient::TYPE_IMPORT_SOCKET]);
                 break;
 
-            case "select-port":
-                $uri = $message["payload"];
+            case IpcClient::TYPE_SELECT_PORT:
+                $uri = $message[1];
                 $stream = ($this->bind)($uri);
                 $uri = \stream_socket_get_name($stream, false);
-                yield $this->context->send(["type" => "select-port", "payload" => $uri]);
+                yield $this->context->send([IpcClient::TYPE_SELECT_PORT, $uri]);
                 break;
 
-            case "log":
-                $this->logger->handle($message["payload"]);
+            case IpcClient::TYPE_PING:
                 break;
 
-            case "pong":
-                break;
-
-            case "data":
-                $this->emitter->emit($message["payload"]);
+            case IpcClient::TYPE_DATA:
+                ($this->onData)($message[1], $message[2]);
                 break;
 
             default:

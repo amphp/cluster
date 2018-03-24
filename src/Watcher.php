@@ -2,8 +2,8 @@
 
 namespace Amp\Cluster;
 
+use function Amp\asyncCall;
 use Amp\CallableMaker;
-use Amp\Emitter;
 use Amp\Iterator;
 use Amp\MultiReasonException;
 use Amp\Parallel\Context\Process;
@@ -40,14 +40,14 @@ final class Watcher {
     /** @var Server */
     private $server;
 
-    /** @var Emitter */
-    private $emitter;
-
     /** @var callable */
     private $bind;
 
     /** @var \SplObjectStorage */
     private $workers;
+
+    /** @var callable[][] */
+    private $onMessage = [];
 
     /**
      * @param string|string[]  $script Script path and optional arguments.
@@ -84,6 +84,16 @@ final class Watcher {
     }
 
     /**
+     * Attaches a callback to be invoked when a message is received from a worker process.
+     *
+     * @param string   $event
+     * @param callable $callback
+     */
+    public function onMessage(string $event, callable $callback) {
+        $this->onMessage[$event][] = $callback;
+    }
+
+    /**
      * @param int $count Number of cluster workers to spawn.
      *
      * @return Promise Succeeded when the cluster has started.
@@ -93,7 +103,6 @@ final class Watcher {
             throw new \Error("The cluster is already running");
         }
 
-        $this->emitter = new Emitter;
         $this->server = Socket\listen($this->uri);
 
         if ($count <= 0) {
@@ -119,7 +128,12 @@ final class Watcher {
                     throw $exception;
                 }
 
-                $worker = new Internal\IpcParent($process, $socket, $this->logHandler, $this->emitter, $this->bind);
+                $worker = new Internal\IpcParent($process, $socket, $this->logHandler, $this->bind, function (string $event, $data) {
+                    foreach ($this->onMessage[$event] ?? [] as $callback) {
+                        asyncCall($callback, $data);
+                    }
+                });
+
                 $this->workers->attach($worker, [$process, $promise = $worker->run()]);
                 $promise->onResolve(function ($error) {
                     if ($error) {
@@ -194,21 +208,6 @@ final class Watcher {
             $promises[] = $worker->send($data);
         }
         return Promise\all($promises);
-    }
-
-    /**
-     * Returns an iterator of messages received from any worker.
-     *
-     * @return Iterator
-     *
-     * @throws \Error If the cluster has not been started.
-     */
-    public function iterate(): Iterator {
-        if (!$this->emitter) {
-            throw new \Error("The cluster has not been started");
-        }
-
-        return $this->emitter->iterate();
     }
 
     /**

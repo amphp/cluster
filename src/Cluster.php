@@ -32,7 +32,7 @@ final class Cluster {
     /** @var callable[]|null */
     private static $onClose = [];
 
-    /** @var callable[] */
+    /** @var callable[][] */
     private static $onMessage = [];
 
     /**
@@ -112,39 +112,12 @@ final class Cluster {
     }
 
     /**
-     * @param HandlerInterface|null $handler Handler used if not running as a cluster. A default stream handler is
-     *     created otherwise.
-     * @param string                $logLevel Log level for the IPC handler and for the default handler if no handler
-     *     is given.
-     * @param bool                  $bubble Bubble flag for the IPC handler and for the default handler if no handler
-     *     is given.
-     *
-     * @return HandlerInterface
-     */
-    public static function getLogHandler(
-        HandlerInterface $handler = null,
-        string $logLevel = LogLevel::DEBUG,
-        bool $bubble = false
-    ): HandlerInterface {
-        if (!self::isWorker()) {
-            return $handler ?? (function () use ($logLevel, $bubble) {
-                $handler = new StreamHandler(new ResourceOutputStream(\STDOUT), $logLevel, $bubble);
-                $handler->setFormatter(new ConsoleFormatter);
-
-                return $handler;
-            })();
-        }
-
-        return new Internal\IpcLogHandler(self::$client, $logLevel, $bubble);
-    }
-
-    /**
      * Internal callback triggered when a message is received from the parent.
      *
      * @param mixed $data
      */
-    private static function onReceivedMessage($data) {
-        foreach (self::$onMessage as $callback) {
+    private static function onReceivedMessage(string $event, $data) {
+        foreach (self::$onMessage[$event] ?? [] as $callback) {
             asyncCall($callback, $data);
         }
     }
@@ -154,21 +127,22 @@ final class Cluster {
      *
      * @param callable $callback
      */
-    public static function onMessage(callable $callback) {
-        self::$onMessage[] = $callback;
+    public static function onMessage(string $event, callable $callback) {
+        self::$onMessage[$event][] = $callback;
     }
 
     /**
-     * @param mixed $data Send data to the parent.
+     * @param string $event Event name.
+     * @param mixed  $data Send data to the parent.
      *
      * @return Promise
      */
-    public static function send($data): Promise {
+    public static function send(string $event, $data = null): Promise {
         if (!self::isWorker()) {
             return new Success; // Ignore sent messages when running as a standalone process.
         }
 
-        return self::$client->send("data", $data);
+        return self::$client->send($event, $data);
     }
 
     /**

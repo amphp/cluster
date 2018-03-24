@@ -3,6 +3,7 @@
 require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\Cluster\Cluster;
+use function Amp\Cluster\createLogHandler;
 use Amp\Loop;
 use Monolog\Logger;
 
@@ -16,7 +17,7 @@ Loop::run(function () {
     $pid = \getmypid();
 
     $logger = new Logger('worker-' . $pid);
-    $logger->pushHandler(Cluster::getLogHandler());
+    $logger->pushHandler(createLogHandler());
 
     $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $pid));
 
