@@ -6,7 +6,6 @@ use Amp\Loop;
 use Amp\Parallel\Context\Context;
 use Amp\Promise;
 use Amp\Socket\Socket;
-use Monolog\Handler\HandlerInterface;
 use function Amp\call;
 
 class IpcParent {
@@ -27,7 +26,7 @@ class IpcParent {
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Context $context, Socket $socket, HandlerInterface $logger, callable $bind, callable $onData) {
+    public function __construct(Context $context, Socket $socket, callable $bind, callable $onData) {
         $this->socket = $socket;
         $this->bind = $bind;
         $this->onData = $onData;

@@ -130,7 +130,7 @@ Loop::run(function () use ($argv, $arguments, $help) {
 
     $logger->info("Starting cluster with " . $workers . " workers");
 
-    $watcher = new Watcher($arguments->get("script"), $logHandler);
+    $watcher = new Watcher($arguments->get("script"), $logger);
     $watcher->onMessage(HandlerInterface::class, function ($record) use ($logHandler) {
         $logHandler->handle($record);
     });

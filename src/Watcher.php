@@ -2,18 +2,15 @@
 
 namespace Amp\Cluster;
 
-use function Amp\asyncCall;
 use Amp\CallableMaker;
-use Amp\Iterator;
 use Amp\MultiReasonException;
 use Amp\Parallel\Context\Process;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
 use Amp\Success;
-use Monolog\Handler\HandlerInterface;
-use Monolog\Handler\NullHandler;
-use Monolog\Logger;
+use Psr\Log\LoggerInterface as PsrLogger;
+use function Amp\asyncCall;
 use function Amp\call;
 
 final class Watcher {
@@ -28,11 +25,8 @@ final class Watcher {
     /** @var string[] */
     private $script;
 
-    /** @var Logger */
+    /** @var PsrLogger */
     private $logger;
-
-    /** @var HandlerInterface */
-    private $logHandler;
 
     /** @var string Socket server URI */
     private $uri;
@@ -51,9 +45,9 @@ final class Watcher {
 
     /**
      * @param string|string[]  $script Script path and optional arguments.
-     * @param HandlerInterface $logHandler
+     * @param PsrLogger $logger
      */
-    public function __construct($script, HandlerInterface $logHandler) {
+    public function __construct($script, PsrLogger $logger) {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
         }
@@ -62,10 +56,7 @@ final class Watcher {
             throw new \Error("The sockets extension is required to create clusters on this system");
         }
 
-        $this->logHandler = $logHandler ?? new NullHandler;
-        $this->logger = new Logger('cluster');
-        $this->logger->pushHandler($this->logHandler);
-
+        $this->logger = $logger;
         $this->uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
 
         $this->script = \array_merge(
@@ -128,7 +119,7 @@ final class Watcher {
                     throw $exception;
                 }
 
-                $worker = new Internal\IpcParent($process, $socket, $this->logHandler, $this->bind, function (string $event, $data) {
+                $worker = new Internal\IpcParent($process, $socket, $this->bind, function (string $event, $data) {
                     foreach ($this->onMessage[$event] ?? [] as $callback) {
                         asyncCall($callback, $data);
                     }
