@@ -2,6 +2,7 @@
 <?php
 
 use Amp\Cluster\Cluster;
+use Amp\Cluster\Watcher;
 use Amp\Loop;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
@@ -127,11 +128,11 @@ Loop::run(function () use ($argv, $arguments, $help) {
 
     $logger->info("Starting cluster with " . $workers . " workers");
 
-    $cluster = new Cluster($arguments->get("script"), $logHandler);
+    $watcher = new Watcher($arguments->get("script"), $logHandler);
 
-    yield $cluster->start($workers);
+    yield $watcher->start($workers);
 
-    $iterator = $cluster->iterate();
+    $iterator = $watcher->iterate();
 
     // Not sure what to do with received data in the generic runner? Perhaps ignore?
     while (yield $iterator->advance()) {
