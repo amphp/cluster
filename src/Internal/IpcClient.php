@@ -105,7 +105,7 @@ final class IpcClient {
         }
     }
 
-    public function importSocket(string $uri) {
+    public function importSocket(string $uri): Promise {
         return call(function () use ($uri) {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);

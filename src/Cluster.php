@@ -9,6 +9,7 @@ use Amp\Emitter;
 use Amp\Iterator;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
+use Amp\MultiReasonException;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
@@ -40,7 +41,7 @@ class Cluster {
     private static $onMessage = [];
 
     /** @var resource[] */
-    private static $sockets = [];
+    private $sockets = [];
 
     /** @var bool */
     private $running = false;
@@ -122,14 +123,7 @@ class Cluster {
 
         return call(function () use ($uri, $listenContext, $tlsContext) {
             if (!self::isWorker()) {
-                if (canReusePort()) {
-                    $listenContext = $listenContext->withReusePort();
-                    return Socket\listen($uri, $listenContext, $tlsContext);
-                }
-
-                $socket = self::bindSocket($uri);
-                $socket = \socket_import_stream($socket);
-                return self::listenOnSocket($socket, $listenContext, $tlsContext);
+                return Socket\listen($uri, $listenContext, $tlsContext);
             }
 
             if (canReusePort()) {
@@ -145,7 +139,7 @@ class Cluster {
             }
 
             $socket = yield self::$client->importSocket($uri);
-            return self::listenOnSocket($socket, $listenContext, $tlsContext);
+            return self::listenOnBoundSocket($socket, $listenContext, $tlsContext);
         });
     }
 
@@ -203,8 +197,7 @@ class Cluster {
      */
     public static function send($data): Promise {
         if (!self::isWorker()) {
-            self::onReceivedMessage($data);
-            return new Success;
+            return new Success; // Ignore sent messages when running as a standalone process.
         }
 
         return self::$client->send("data", $data);
@@ -234,6 +227,10 @@ class Cluster {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
         }
 
+        if (!canReusePort() && !\extension_loaded("sockets")) {
+            throw new \Error("The sockets extension is required to create clusters on this system");
+        }
+
         $this->logHandler = $logHandler ?? new NullHandler;
 
         $this->uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
@@ -244,7 +241,7 @@ class Cluster {
         );
 
         $this->workers = new \SplObjectStorage;
-        $this->bind = self::callableFromStaticMethod("bindSocket");
+        $this->bind = $this->callableFromInstanceMethod("bindSocket");
     }
 
     public function __destruct() {
@@ -325,17 +322,23 @@ class Cluster {
                         if ($process->isRunning()) {
                             $process->kill();
                         }
+
+                        throw $exception;
                     }
                 });
             }
 
-            yield Promise\any($promises);
+            list($exceptions) = yield Promise\any($promises);
 
             $this->emitter->complete();
 
             $this->server->close();
 
             $this->workers = new \SplObjectStorage;
+
+            if (!empty($exceptions)) {
+                throw new MultiReasonException($exceptions);
+            }
         });
     }
 
@@ -375,9 +378,9 @@ class Cluster {
      *
      * @return resource Stream socket server resource.
      */
-    private static function bindSocket(string $uri) {
-        if (isset(self::$sockets[$uri])) {
-            return self::$sockets[$uri];
+    private function bindSocket(string $uri) {
+        if (isset($this->sockets[$uri])) {
+            return $this->sockets[$uri];
         }
 
         if (!\strncmp($uri, "unix://", 7)) {
@@ -397,7 +400,7 @@ class Cluster {
             throw new \RuntimeException(\sprintf("Failed binding socket on %s: [Err# %s] %s", $uri, $errno, $errstr));
         }
 
-        return self::$sockets[$uri] = $socket;
+        return $this->sockets[$uri] = $socket;
     }
 
     /**
@@ -407,7 +410,7 @@ class Cluster {
      *
      * @return Server
      */
-    private static function listenOnSocket(
+    private static function listenOnBoundSocket(
         $socket,
         Socket\ServerListenContext $listenContext = null,
         Socket\ServerTlsContext $tlsContext = null

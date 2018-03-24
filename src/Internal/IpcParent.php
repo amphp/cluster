@@ -74,7 +74,7 @@ class IpcParent {
         });
     }
 
-    private function handleMessage(array $message) {
+    private function handleMessage(array $message): \Generator {
         \assert(\array_key_exists("type", $message) && \array_key_exists("payload", $message));
 
         switch ($message["type"]) {
