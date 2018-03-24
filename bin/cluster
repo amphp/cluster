@@ -4,12 +4,33 @@
 use Amp\Cluster\Cluster;
 use Amp\Loop;
 use Monolog\Logger;
+use Psr\Log\LogLevel;
 use function Amp\Cluster\countCpuCores;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
 if (function_exists("cli_set_process_title")) {
     @cli_set_process_title("amp-cluster");
 }
+
+$help = <<<EOT
+            __           __
+      _____/ /_  _______/ /____  _____
+     / ___/ / / / / ___/ __/ _ \/ ___/
+    / /__/ / /_/ (__  ) /_/  __/ /
+    \___/_/\__,_/____/\__/\___/_/
+
+    -s, --script      Defines the script to run (required)
+    -h, --help        Display the help screen
+    -l, --log         Set the minimum log output level (default: info)
+    -w, --workers     Manually specify worker count (default: CPU core count)
+
+    Example Usage:
+    cluster --help
+    cluster -s /path/to/script.php -w 4
+    cluster -s /another/script/path.php -l warning
+
+
+EOT;
 
 error_reporting(E_ALL);
 
@@ -34,19 +55,81 @@ error_reporting(E_ALL);
     require $autoloadPath;
 })();
 
-Loop::run(function () use ($argv, $argc) {
-    if ($argc !== 2) {
-        print "Usage: bin/cluster script.php\r\n";
+$arguments = new League\CLImate\Argument\Manager;
+
+$arguments->add([
+    "help" => [
+        "prefix"       => "h",
+        "longPrefix"   => "help",
+        "description"  => "Display the help screen",
+        "noValue"      => true,
+    ],
+    "log" => [
+        "prefix"       => "l",
+        "longPrefix"   => "log",
+        "description"  => "Set the minimum log output level",
+        "defaultValue" => LogLevel::INFO,
+    ],
+    "workers" => [
+        "prefix"       => "w",
+        "longPrefix"   => "workers",
+        "description"  => "Manually specify worker count",
+        "castTo"       => "int",
+    ],
+    "script" => [
+        "prefix"       => "s",
+        "longPrefix"   => "script",
+        "description"  => "Defines the script to run",
+    ],
+]);
+
+Loop::run(function () use ($argv, $arguments, $help) {
+    try {
+        $arguments->parse($argv);
+
+        if ($arguments->defined("help")) {
+            echo $help;
+            exit(0);
+        }
+
+        if (!$arguments->defined("script")) {
+            throw new Exception("Script path argument is required (-s or --script)");
+        }
+    } catch (Exception $e) {
+        echo "Invalid arguments: " . $e->getMessage() . "\n\n";
+        echo $help;
         exit(1);
     }
 
-    $logHandler = Cluster::getLogHandler();
-    $logger = new Logger($logHandler);
+    if ($arguments->defined("log")) {
+        $level = $arguments->get("log");
+    } else {
+        $level = LogLevel::INFO;
+    }
 
-    $cluster = new Cluster($argv[1], $logHandler);
+    $logger = new Logger('cluster');
 
+    $logHandler = Cluster::getLogHandler(null, $level);
+    $logger->pushHandler($logHandler);
 
-    yield $cluster->start(countCpuCores());
+    if ($arguments->defined("workers")) {
+        $workers = $arguments->get("workers");
+    } else {
+        $workers = countCpuCores();
+    }
+
+    $script = $arguments->get("script");
+
+    if (!is_file($script)) {
+        echo "Error: Could not find script at path " . $script . "\n\n";
+        exit(1);
+    }
+
+    $logger->info("Starting cluster with " . $workers . " workers");
+
+    $cluster = new Cluster($arguments->get("script"), $logHandler);
+
+    yield $cluster->start($workers);
 
     $iterator = $cluster->iterate();
 

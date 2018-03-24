@@ -6,13 +6,16 @@ use Amp\Cluster\Cluster;
 use Amp\Loop;
 use Monolog\Logger;
 
+// Run using bin/cluster -s examples/hello-world.php
+// Then connect using nc localhost 1337 multiple times to see the PID of the accepting process change.
+
 Loop::run(function () {
     /** @var \Amp\Socket\Server $server */
     $server = yield Cluster::listen("tcp://0.0.0.0:1337");
 
     $pid = \getmypid();
 
-    $logger = new Logger('test-worker');
+    $logger = new Logger('worker-' . $pid);
     $logger->pushHandler(Cluster::getLogHandler());
 
     $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $pid));
