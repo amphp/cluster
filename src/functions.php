@@ -48,8 +48,6 @@ function countCpuCores(): int {
 /**
  * Determine if SO_REUSEPORT is supported on the system.
  *
- * @TODO Placeholder, proper implementation needed.
- *
  * @return bool
  */
 function canReusePort(): bool {
@@ -63,6 +61,9 @@ function canReusePort(): bool {
 
     switch ($os) {
         case "win":
+            return $canReusePort = true;
+
+        case "linux":
             return $canReusePort = true;
 
         default:

@@ -16,6 +16,7 @@ use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
 use Amp\Success;
+use Monolog\Logger;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Handler\NullHandler;
 use Psr\Log\LogLevel;
@@ -48,6 +49,9 @@ class Cluster {
 
     /** @var string[] */
     private $script;
+
+    /** @var Logger */
+    private $logger;
 
     /** @var HandlerInterface */
     private $logHandler;
@@ -232,6 +236,8 @@ class Cluster {
         }
 
         $this->logHandler = $logHandler ?? new NullHandler;
+        $this->logger = new Logger('cluster');
+        $this->logger->pushHandler($this->logHandler);
 
         $this->uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
 
@@ -287,7 +293,12 @@ class Cluster {
                 }
 
                 $worker = new Internal\IpcParent($process, $socket, $this->logHandler, $this->emitter, $this->bind);
-                $this->workers->attach($worker, [$process, $worker->run()]);
+                $this->workers->attach($worker, [$process, $promise = $worker->run()]);
+                $promise->onResolve(function ($error) {
+                    if ($error) {
+                        $this->logger->error((string) $error);
+                    }
+                });
             }
         });
     }
