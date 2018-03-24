@@ -64,7 +64,11 @@ function canReusePort(): bool {
             return $canReusePort = true;
 
         case "linux":
-            return $canReusePort = true;
+            // We determine support based on Kernel version.
+            // We don't care about backports, as socket transfer works fine, too.
+            $version = \trim(`uname -r`);
+            $version = \implode(".", \array_slice(\explode(".", $version), 0, 2));
+            return $canReusePort = \version_compare($version, '3.9', '>=');
 
         default:
             return $canReusePort = false;
