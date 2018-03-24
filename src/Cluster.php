@@ -2,24 +2,14 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ResourceOutputStream;
 use Amp\CallableMaker;
 use Amp\Cluster\Internal\IpcClient;
-use Amp\Emitter;
-use Amp\Iterator;
-use Amp\Log\ConsoleFormatter;
-use Amp\Log\StreamHandler;
-use Amp\MultiReasonException;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
 use Amp\Success;
-use Monolog\Logger;
-use Monolog\Handler\HandlerInterface;
-use Monolog\Handler\NullHandler;
-use Psr\Log\LogLevel;
 use function Amp\asyncCall;
 use function Amp\call;
 
