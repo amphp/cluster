@@ -59,6 +59,8 @@ function canReusePort(): bool {
 
     $os = (\stripos(\PHP_OS, "WIN") === 0) ? "win" : \strtolower(\PHP_OS);
 
+    // Before you add new systems, please check whether they really support the option for load balancing,
+    // e.g. macOS only supports it for failover, only the newest process will get connections there.
     switch ($os) {
         case "win":
             return $canReusePort = true;
