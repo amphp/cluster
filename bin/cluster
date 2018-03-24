@@ -5,6 +5,7 @@ use Amp\Cluster\Cluster;
 use function Amp\Cluster\createLogHandler;
 use Amp\Cluster\Watcher;
 use Amp\Loop;
+use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
 use function Amp\Cluster\countCpuCores;
@@ -130,7 +131,7 @@ Loop::run(function () use ($argv, $arguments, $help) {
     $logger->info("Starting cluster with " . $workers . " workers");
 
     $watcher = new Watcher($arguments->get("script"), $logHandler);
-    $watcher->onMessage("log", function ($record) use ($logHandler) {
+    $watcher->onMessage(HandlerInterface::class, function ($record) use ($logHandler) {
         $logHandler->handle($record);
     });
 

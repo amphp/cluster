@@ -4,6 +4,7 @@ namespace Amp\Cluster\Internal;
 
 use Amp\Cluster\Cluster;
 use Monolog\Handler\AbstractProcessingHandler;
+use Monolog\Handler\HandlerInterface;
 use Psr\Log\LogLevel;
 
 final class IpcLogHandler extends AbstractProcessingHandler {
@@ -13,6 +14,6 @@ final class IpcLogHandler extends AbstractProcessingHandler {
 
     /** @inheritdoc */
     protected function write(array $record) {
-        Cluster::send("log", $record);
+        Cluster::send(HandlerInterface::class, $record);
     }
 }
