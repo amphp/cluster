@@ -173,8 +173,6 @@ final class Watcher {
 
             list($exceptions) = yield Promise\any($promises);
 
-            $this->emitter->complete();
-
             $this->server->close();
 
             $this->workers = new \SplObjectStorage;
