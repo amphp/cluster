@@ -5,6 +5,7 @@ namespace Amp\Cluster\Internal;
 use Amp\Loop;
 use Amp\Parallel\Context\Context;
 use Amp\Promise;
+use Amp\Socket\Server;
 use Amp\Socket\Socket;
 use function Amp\call;
 
@@ -89,7 +90,7 @@ class IpcParent {
             case IpcClient::TYPE_SELECT_PORT:
                 $uri = $message[1];
                 $stream = ($this->bind)($uri);
-                $uri = \stream_socket_get_name($stream, false);
+                $uri = (new Server($stream))->getAddress(); // Work around stream_socket_get_name + IPv6
                 yield $this->context->send([IpcClient::TYPE_SELECT_PORT, $uri]);
                 break;
 
