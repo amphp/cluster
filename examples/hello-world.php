@@ -3,16 +3,16 @@
 require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\Cluster\Cluster;
-use function Amp\Cluster\createLogHandler;
 use Amp\Loop;
 use Monolog\Logger;
+use function Amp\Cluster\createLogHandler;
 
 // Run using bin/cluster -s examples/hello-world.php
 // Then connect using nc localhost 1337 multiple times to see the PID of the accepting process change.
 
 Loop::run(function () {
     /** @var \Amp\Socket\Server $server */
-    $server = yield Cluster::listen("tcp://0.0.0.0:1337");
+    $server = yield Cluster::listen("127.0.0.1:1337");
 
     $pid = \getmypid();
 
