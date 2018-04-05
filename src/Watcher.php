@@ -61,7 +61,7 @@ final class Watcher {
 
         $this->script = \array_merge(
             [__DIR__ . '/Internal/cluster-runner.php', $this->uri],
-            \is_array($script) ? \array_values(\array_map("strval", $script)) : [$script]
+            \is_array($script) ? \array_values(\array_map("strval", $script)) : [(string) $script]
         );
 
         $this->workers = new \SplObjectStorage;
@@ -155,7 +155,9 @@ final class Watcher {
                     list($process, $promise) = $this->workers[$worker];
 
                     if (!$process->isRunning()) {
-                        return;
+                        // FIXME: With this early return graceful shutdown works unreliable,
+                        // this is because isRunning() returns false while the process is still running.
+                        // return;
                     }
 
                     try {
