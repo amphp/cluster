@@ -31,6 +31,7 @@ $help = <<<EOT
     cluster --help
     cluster -s /path/to/script.php -w 4
     cluster -s /another/script/path.php -l warning
+    cluster -s server.php -- --port 8080
 
 
 EOT;
