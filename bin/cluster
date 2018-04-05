@@ -168,5 +168,21 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
         $logHandler->handle($record);
     });
 
+    try {
+        $signalHandler = function ($watcherId, $signalNumber, $signal) use ($watcher, $logger) {
+            Loop::cancel($watcherId);
+
+            $logger->info('Stopping cluster due to received signal: ' . $signal);
+            yield $watcher->stop();
+
+            Loop::stop();
+        };
+
+        Loop::unreference(Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler, 'SIGINT'));
+        Loop::unreference(Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler, 'SIGTERM'));
+    } catch (Loop\UnsupportedFeatureException $e) {
+        // ignore if extensions are missing or OS is Windows
+    }
+
     yield $watcher->start($workers);
 });

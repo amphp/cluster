@@ -3,6 +3,7 @@
 require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\Cluster\Cluster;
+use Amp\Delayed;
 use Amp\Loop;
 use Monolog\Logger;
 use function Amp\Cluster\createLogHandler;
@@ -21,7 +22,10 @@ Loop::run(function () {
 
     $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $pid));
 
-    Cluster::onTerminate(function () use ($server) {
+    Cluster::onTerminate(function () use ($server, $logger) {
+        $logger->info("Received termination request");
+        yield new Delayed(1000);
+
         $server->close();
     });
 

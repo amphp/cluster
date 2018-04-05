@@ -71,9 +71,11 @@ final class IpcClient {
             while (null !== $message = yield $this->channel->receive()) {
                 yield from $this->handleMessage($message);
             }
-
-            yield $this->channel->send(null);
         });
+    }
+
+    public function close(): Promise {
+        return $this->channel->send(null);
     }
 
     private function handleMessage(array $message): \Generator {

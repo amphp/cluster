@@ -4,6 +4,7 @@ namespace Amp\Cluster;
 
 use Amp\CallableMaker;
 use Amp\Cluster\Internal\IpcClient;
+use Amp\Loop;
 use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
@@ -25,27 +26,41 @@ final class Cluster {
     /** @var callable[][] */
     private static $onMessage = [];
 
+    /** @var string[] */
+    private static $signalWatchers;
+
     /**
      * @param Channel             $channel
      * @param Socket\ClientSocket $socket
      */
     private static function init(Channel $channel, Socket\ClientSocket $socket) {
         self::$client = new IpcClient($channel, $socket, self::callableFromStaticMethod("onReceivedMessage"));
-        self::$client->run()->onResolve(self::callableFromStaticMethod("terminate"));
+
+        asyncCall(static function () {
+            yield self::$client->run();
+            yield self::terminate();
+            yield self::$client->close();
+
+            self::$client = null;
+
+            Loop::stop();
+        });
     }
 
     /**
      * Invokes any termination callbacks.
      *
-     * @return Promise|null
+     * @return Promise
      */
-    private static function terminate() { /* ?Promise */
+    private static function terminate(): Promise {
         if (self::$onClose === null) {
-            return null;
+            return new Success;
         }
 
-        if (self::$client !== null) {
-            self::$client = null;
+        if (self::$signalWatchers) {
+            foreach (self::$signalWatchers as $watcher) {
+                Loop::cancel($watcher);
+            }
         }
 
         $onClose = self::$onClose;
@@ -55,7 +70,16 @@ final class Cluster {
         foreach ($onClose as $callable) {
             $promises[] = call($callable);
         }
-        return Promise\all($promises);
+
+        $promise = Promise\all($promises);
+
+        if (!self::isWorker()) {
+            $promise->onResolve(function () {
+                Loop::stop();
+            });
+        }
+
+        return $promise;
     }
 
     /**
@@ -139,12 +163,24 @@ final class Cluster {
      * @param callable $callable Callable to invoke to shutdown the process.
      */
     public static function onTerminate(callable $callable) {
-        if (!self::isWorker()) {
+        if (self::$onClose === null) {
             return;
         }
 
-        if (self::$onClose === null) {
-            return;
+        if (self::$signalWatchers === null && !self::isWorker()) {
+            self::$signalWatchers = [];
+
+            try {
+                $signalHandler = self::callableFromStaticMethod('terminate');
+                self::$signalWatchers[] = Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler);
+                self::$signalWatchers[] = Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler);
+
+                foreach (self::$signalWatchers as $signalWatcher) {
+                    Loop::unreference($signalWatcher);
+                }
+            } catch (Loop\UnsupportedFeatureException $e) {
+                // ignore if extensions are missing or OS is Windows
+            }
         }
 
         self::$onClose[] = $callable;
