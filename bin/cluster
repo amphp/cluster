@@ -1,14 +1,13 @@
 #!/usr/bin/env php
 <?php
 
-use Amp\Cluster\Cluster;
-use function Amp\Cluster\createLogHandler;
 use Amp\Cluster\Watcher;
 use Amp\Loop;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
 use function Amp\Cluster\countCpuCores;
+use function Amp\Cluster\createLogHandler;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
 if (function_exists("cli_set_process_title")) {
@@ -26,6 +25,7 @@ $help = <<<EOT
     -h, --help        Display the help screen
     -l, --log         Set the minimum log output level (default: info)
     -w, --workers     Manually specify worker count (default: CPU core count)
+    --                Marker to separate cluster and worker arguments
 
     Example Usage:
     cluster --help
@@ -58,36 +58,67 @@ error_reporting(E_ALL);
     require $autoloadPath;
 })();
 
-$arguments = new League\CLImate\Argument\Manager;
-
-$arguments->add([
+$args = [
     "help" => [
-        "prefix"       => "h",
-        "longPrefix"   => "help",
-        "description"  => "Display the help screen",
-        "noValue"      => true,
+        "prefix" => "h",
+        "longPrefix" => "help",
+        "description" => "Display the help screen",
+        "noValue" => true,
     ],
     "log" => [
-        "prefix"       => "l",
-        "longPrefix"   => "log",
-        "description"  => "Set the minimum log output level",
+        "prefix" => "l",
+        "longPrefix" => "log",
+        "description" => "Set the minimum log output level",
         "defaultValue" => LogLevel::INFO,
     ],
     "workers" => [
-        "prefix"       => "w",
-        "longPrefix"   => "workers",
-        "description"  => "Manually specify worker count",
-        "castTo"       => "int",
+        "prefix" => "w",
+        "longPrefix" => "workers",
+        "description" => "Manually specify worker count",
+        "castTo" => "int",
     ],
     "script" => [
-        "prefix"       => "s",
-        "longPrefix"   => "script",
-        "description"  => "Defines the script to run",
+        "prefix" => "s",
+        "longPrefix" => "script",
+        "description" => "Defines the script to run",
     ],
-]);
+];
 
-Loop::run(function () use ($argv, $arguments, $help) {
+$flags = [];
+
+foreach ($args as $arg) {
+    if (isset($arg['prefix'])) {
+        $flags['-' . $arg['prefix']] = $arg['noValue'] ?? false;
+    }
+
+    if (isset($arg['longPrefix'])) {
+        $flags['--' . $arg['longPrefix']] = $arg['noValue'] ?? false;
+    }
+}
+
+$arguments = new League\CLImate\Argument\Manager;
+$arguments->add($args);
+
+Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
     try {
+        $workerArguments = [];
+
+        for ($i = 1; $i < $argc; $i++) {
+            if ($argv[$i] === '--') {
+                $workerArguments = \array_slice($argv, $i + 1);
+                $argv = \array_slice($argv, 0, $i);
+                break;
+            }
+
+            if (!isset($flags[$argv[$i]])) {
+                throw new \Exception("Unknown command line option: {$argv[$i]}");
+            }
+
+            if (!$flags[$argv[$i]]) {
+                $i++;
+            }
+        }
+
         $arguments->parse($argv);
 
         if ($arguments->defined("help")) {
@@ -130,7 +161,8 @@ Loop::run(function () use ($argv, $arguments, $help) {
 
     $logger->info("Starting cluster with " . $workers . " workers");
 
-    $watcher = new Watcher($arguments->get("script"), $logger);
+    \array_unshift($workerArguments, $arguments->get("script"));
+    $watcher = new Watcher($workerArguments, $logger);
     $watcher->onMessage(HandlerInterface::class, function ($record) use ($logHandler) {
         $logHandler->handle($record);
     });
