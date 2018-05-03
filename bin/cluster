@@ -1,7 +1,10 @@
 #!/usr/bin/env php
 <?php
 
+use Amp\ByteStream\ResourceOutputStream;
 use Amp\Cluster\Watcher;
+use Amp\File;
+use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
@@ -10,8 +13,8 @@ use function Amp\Cluster\countCpuCores;
 use function Amp\Cluster\createLogHandler;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
-if (function_exists("cli_set_process_title")) {
-    @cli_set_process_title("amp-cluster");
+if (\function_exists("cli_set_process_title")) {
+    @\cli_set_process_title("amp-cluster");
 }
 
 $help = <<<EOT
@@ -36,23 +39,23 @@ $help = <<<EOT
 
 EOT;
 
-error_reporting(E_ALL);
+\error_reporting(E_ALL);
 
 (function () {
     $paths = [
-        dirname(__DIR__, 3) . "/autoload.php",
-        dirname(__DIR__) . "/vendor/autoload.php",
+        \dirname(__DIR__, 3) . "/autoload.php",
+        \dirname(__DIR__) . "/vendor/autoload.php",
     ];
 
     foreach ($paths as $path) {
-        if (file_exists($path)) {
+        if (\file_exists($path)) {
             $autoloadPath = $path;
             break;
         }
     }
 
     if (!isset($autoloadPath)) {
-        fwrite(STDERR, "Could not locate autoload.php");
+        \fwrite(STDERR, "Could not locate autoload.php");
         exit(1);
     }
 
@@ -71,6 +74,11 @@ $args = [
         "longPrefix" => "log",
         "description" => "Set the minimum log output level",
         "defaultValue" => LogLevel::INFO,
+    ],
+    "file" => [
+        "prefix" => "f",
+        "longPrefix" => "file",
+        "description" => "Log file path. Log messages are written to STDOUT if not specified.",
     ],
     "workers" => [
         "prefix" => "w",
@@ -142,9 +150,13 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
         $level = LogLevel::INFO;
     }
 
-    $logger = new Logger('cluster');
+    if ($arguments->defined("file")) {
+        $logHandler = new StreamHandler(yield File\open($arguments->get("file"), "a"));
+    } else {
+        $logHandler = new StreamHandler(new ResourceOutputStream(\STDOUT), $level);
+    }
 
-    $logHandler = createLogHandler(null, $level);
+    $logger = new Logger("cluster");
     $logger->pushHandler($logHandler);
 
     if ($arguments->defined("workers")) {
@@ -155,7 +167,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
 
     $script = $arguments->get("script");
 
-    if (!is_file($script)) {
+    if (!\is_file($script)) {
         echo "Error: Could not find script at path " . $script . "\n\n";
         exit(1);
     }
