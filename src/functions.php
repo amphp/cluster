@@ -69,18 +69,23 @@ function canReusePort(): bool {
     // e.g. macOS only supports it for failover, only the newest process will get connections there.
     switch ($os) {
         case "win":
-            return $canReusePort = true;
+            $canReusePort = true;
+            break;
 
         case "linux":
             // We determine support based on Kernel version.
             // We don't care about backports, as socket transfer works fine, too.
             $version = \trim(\shell_exec('uname -r'));
             $version = \implode(".", \array_slice(\explode(".", $version), 0, 2));
-            return $canReusePort = \version_compare($version, '3.9', '>=');
+            $canReusePort = \version_compare($version, '3.9', '>=');
+            break;
 
         default:
-            return $canReusePort = false;
+            $canReusePort = false;
+            break;
     }
+
+    return $canReusePort;
 }
 
 /**

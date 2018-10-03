@@ -1,11 +1,12 @@
 <?php
 
+/** @noinspection PhpUndefinedClassInspection CallableMaker */
+
 namespace Amp\Cluster;
 
 use Amp\CallableMaker;
 use Amp\Cluster\Internal\IpcClient;
 use Amp\Loop;
-use Amp\Parallel\Context\Process;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
 use Amp\Socket;
@@ -29,11 +30,13 @@ final class Cluster {
     /** @var string[] */
     private static $signalWatchers;
 
+    /* @noinspection PhpUnusedPrivateMethodInspection */
     /**
      * @param Channel             $channel
      * @param Socket\ClientSocket $socket
      */
     private static function init(Channel $channel, Socket\ClientSocket $socket) {
+        /** @noinspection PhpDeprecationInspection */
         self::$client = new IpcClient($channel, $socket, self::callableFromStaticMethod("onReceivedMessage"));
 
         asyncCall(static function () {
@@ -125,9 +128,11 @@ final class Cluster {
         });
     }
 
+    /* @noinspection PhpUnusedPrivateMethodInspection */
     /**
      * Internal callback triggered when a message is received from the parent.
      *
+     * @param string $event
      * @param mixed $data
      */
     private static function onReceivedMessage(string $event, $data) {
@@ -139,6 +144,7 @@ final class Cluster {
     /**
      * Attaches a callback to be invoked when a message is received from the parent process.
      *
+     * @param string $event
      * @param callable $callback
      */
     public static function onMessage(string $event, callable $callback) {
@@ -171,6 +177,7 @@ final class Cluster {
             self::$signalWatchers = [];
 
             try {
+                /** @noinspection PhpDeprecationInspection */
                 $signalHandler = self::callableFromStaticMethod('terminate');
                 self::$signalWatchers[] = Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler);
                 self::$signalWatchers[] = Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler);
@@ -209,9 +216,11 @@ final class Cluster {
 
         \socket_listen($socket, $context["socket"]["backlog"] ?? 0);
 
-        $socket = \socket_export_stream($socket);
-        \stream_context_set_option($socket, $context); // put eventual options like ssl back (per worker)
+        /** @var resource $stream */
+        /** @noinspection PhpVoidFunctionResultUsedInspection */
+        $stream = \socket_export_stream($socket);
+        \stream_context_set_option($stream, $context); // put eventual options like ssl back (per worker)
 
-        return new Server($socket);
+        return new Server($stream);
     }
 }

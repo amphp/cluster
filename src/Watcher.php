@@ -1,12 +1,13 @@
 <?php
 
+/** @noinspection PhpUndefinedClassInspection CallableMaker */
+
 namespace Amp\Cluster;
 
 use Amp\CallableMaker;
 use Amp\MultiReasonException;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\Process;
-use Amp\Parallel\Sync\ChannelException;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
@@ -63,10 +64,12 @@ final class Watcher {
 
         $this->script = \array_merge(
             [__DIR__ . '/Internal/cluster-runner.php', $this->uri],
-            \is_array($script) ? \array_values(\array_map("strval", $script)) : [(string) $script]
+            \is_array($script) ? \array_values(\array_map("\\strval", $script)) : [(string) $script]
         );
 
         $this->workers = new \SplObjectStorage;
+
+        /** @noinspection PhpDeprecationInspection */
         $this->bind = $this->callableFromInstanceMethod("bindSocket");
     }
 
@@ -219,6 +222,7 @@ final class Watcher {
         return Promise\all($promises);
     }
 
+    /* @noinspection PhpUnusedPrivateMethodInspection */
     /**
      * @param string $uri
      *

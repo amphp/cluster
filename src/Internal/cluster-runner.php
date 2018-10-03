@@ -39,7 +39,7 @@ return function (Channel $channel) use ($argc, $argv) {
             throw new \Error(\sprintf("No script found at '%s' (be sure to provide the full path to the script)", $argv[0]));
         }
 
-        return require $argv[0];
+        require $argv[0];
     })();
 
     return 0;
