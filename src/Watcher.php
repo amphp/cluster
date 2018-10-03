@@ -4,7 +4,9 @@ namespace Amp\Cluster;
 
 use Amp\CallableMaker;
 use Amp\MultiReasonException;
+use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\Process;
+use Amp\Parallel\Sync\ChannelException;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
@@ -104,34 +106,50 @@ final class Watcher {
 
         return call(function () use ($count) {
             for ($i = 0; $i < $count; ++$i) {
-                $process = new Process($this->script);
-                $process->start();
+                yield $this->startWorker();
+            }
+        });
+    }
 
-                try {
-                    /** @var Socket\ClientSocket $socket */
-                    $socket = yield Promise\timeout($this->server->accept(), 5000);
-                } catch (\Throwable $exception) {
-                    if ($process->isRunning()) {
-                        $process->kill();
-                    }
+    private function startWorker(): Promise {
+        return call(function () {
+            $process = new Process($this->script);
+            $process->start();
 
-                    yield $this->stop();
-                    throw $exception;
+            try {
+                /** @var Socket\ClientSocket $socket */
+                $socket = yield Promise\timeout($this->server->accept(), 5000);
+            } catch (\Throwable $exception) {
+                if ($process->isRunning()) {
+                    $process->kill();
                 }
 
-                $worker = new Internal\IpcParent($process, $socket, $this->bind, function (string $event, $data) {
-                    foreach ($this->onMessage[$event] ?? [] as $callback) {
-                        asyncCall($callback, $data);
-                    }
-                });
+                yield $this->stop();
+                throw $exception;
+            }
 
-                $this->workers->attach($worker, [$process, $promise = $worker->run()]);
-                $promise->onResolve(function ($error) {
-                    if ($error) {
+            $worker = new Internal\IpcParent($process, $socket, $this->bind, function (string $event, $data) {
+                foreach ($this->onMessage[$event] ?? [] as $callback) {
+                    asyncCall($callback, $data);
+                }
+            });
+
+            $this->workers->attach($worker, [$process, $promise = $worker->run()]);
+            $promise->onResolve(function ($error) {
+                if ($error) {
+                    if ($error instanceof ContextException) {
+                        $this->logger->error("Worker died unexpectedly" . ($this->running ? ", restarting..." : "."));
+                    } else {
                         $this->logger->error((string) $error);
                     }
-                });
-            }
+                } else {
+                    $this->logger->info("Worker terminated cleanly" . ($this->running ? ", restarting..." : "."));
+                }
+
+                if ($this->running) {
+                    Promise\rethrow($this->startWorker());
+                }
+            });
         });
     }
 

@@ -139,7 +139,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
             throw new Exception("Script path argument is required (-s or --script)");
         }
     } catch (Exception $e) {
-        echo "Invalid arguments: " . $e->getMessage() . "\n\n";
+        echo "Invalid arguments: " . $e->getMessage() . PHP_EOL . PHP_EOL;
         echo $help;
         exit(1);
     }
@@ -168,7 +168,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
     $script = $arguments->get("script");
 
     if (!\is_file($script)) {
-        echo "Error: Could not find script at path " . $script . "\n\n";
+        echo "Error: Could not find script at path " . $script . PHP_EOL . PHP_EOL;
         exit(1);
     }
 
