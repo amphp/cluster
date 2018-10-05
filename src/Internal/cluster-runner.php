@@ -22,7 +22,7 @@ return function (Channel $channel) use ($argc, $argv) {
     try {
         $transferSocket = yield Socket\connect($uri);
     } catch (\Throwable $exception) {
-        return 1;
+        throw new \RuntimeException("Could not connect to IPC socket");
     }
 
     (function () use ($channel, $transferSocket) {
