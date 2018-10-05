@@ -2,11 +2,13 @@
 
 require dirname(__DIR__) . "/vendor/autoload.php";
 
+use Amp\ByteStream\ResourceOutputStream;
 use Amp\Cluster\Cluster;
 use Amp\Delayed;
+use Amp\Log\ConsoleFormatter;
+use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Monolog\Logger;
-use function Amp\Cluster\createLogHandler;
 
 // Run using bin/cluster -s examples/hello-world.php
 // Then connect using nc localhost 1337 multiple times to see the PID of the accepting process change.
@@ -17,8 +19,15 @@ Loop::run(function () {
 
     $pid = \getmypid();
 
+    if (Cluster::isWorker()) {
+        $handler = Cluster::createLogHandler();
+    } else {
+        $handler = new StreamHandler(new ResourceOutputStream(\STDOUT));
+        $handler->setFormatter(new ConsoleFormatter);
+    }
+
     $logger = new Logger('worker-' . $pid);
-    $logger->pushHandler(createLogHandler());
+    $logger->pushHandler($handler);
 
     $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $pid));
 

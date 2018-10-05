@@ -2,12 +2,6 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ResourceOutputStream;
-use Amp\Log\ConsoleFormatter;
-use Amp\Log\StreamHandler;
-use Monolog\Handler\HandlerInterface;
-use Psr\Log\LogLevel;
-
 /**
  * Determine the total number of CPU cores on the system.
  *
@@ -86,31 +80,4 @@ function canReusePort(): bool {
     }
 
     return $canReusePort;
-}
-
-/**
- * @param HandlerInterface|null $handler Handler used if not running as a cluster. A default stream handler is
- *     created otherwise.
- * @param string                $logLevel Log level for the IPC handler and for the default handler if no handler
- *     is given.
- * @param bool                  $bubble Bubble flag for the IPC handler and for the default handler if no handler
- *     is given.
- *
- * @return HandlerInterface
- */
-function createLogHandler(
-    HandlerInterface $handler = null,
-    string $logLevel = LogLevel::DEBUG,
-    bool $bubble = false
-): HandlerInterface {
-    if (!Cluster::isWorker()) {
-        return $handler ?? (function () use ($logLevel, $bubble) {
-            $handler = new StreamHandler(new ResourceOutputStream(\STDOUT), $logLevel, $bubble);
-            $handler->setFormatter(new ConsoleFormatter);
-
-            return $handler;
-        })();
-    }
-
-    return new Internal\IpcLogHandler($logLevel, $bubble);
 }

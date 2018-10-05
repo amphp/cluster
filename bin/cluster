@@ -10,7 +10,6 @@ use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
 use function Amp\Cluster\countCpuCores;
-use function Amp\Cluster\createLogHandler;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
 if (\function_exists("cli_set_process_title")) {
@@ -151,7 +150,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
     }
 
     if ($arguments->defined("file")) {
-        $logHandler = new StreamHandler(yield File\open($arguments->get("file"), "a"));
+        $logHandler = new StreamHandler(yield File\open($arguments->get("file"), "a"), $level);
     } else {
         $logHandler = new StreamHandler(new ResourceOutputStream(\STDOUT), $level);
     }

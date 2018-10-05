@@ -12,6 +12,8 @@ use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
 use Amp\Success;
+use Monolog\Handler\HandlerInterface;
+use Psr\Log\LogLevel;
 use function Amp\asyncCall;
 use function Amp\call;
 
@@ -191,6 +193,25 @@ final class Cluster {
         }
 
         self::$onClose[] = $callable;
+    }
+
+    /**
+     * Creates a log handler in worker processes that communicates log messages to the parent.
+     *
+     * @param string $logLevel Log level for the IPC handler
+     * @param bool   $bubble   Bubble flag for the IPC handler
+     *
+     * @return HandlerInterface
+     *
+     * @throws \Error Thrown if not running as a worker.
+     */
+    public static function createLogHandler(string $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface {
+        if (!self::isWorker()) {
+            throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
+                "Create your own log handler when not running as part of a cluster");
+        }
+
+        return new Internal\IpcLogHandler($logLevel, $bubble);
     }
 
     /**
