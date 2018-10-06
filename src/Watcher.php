@@ -130,6 +130,13 @@ final class Watcher {
                 yield $this->stop();
                 throw $exception;
             }
+            
+            if (!$socket) {
+                if ($process->isRunning()) {
+                    $process->kill();
+                }
+                return;
+            }
 
             $worker = new Internal\IpcParent($process, $socket, $this->bind, function (string $event, $data) {
                 foreach ($this->onMessage[$event] ?? [] as $callback) {
