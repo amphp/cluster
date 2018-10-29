@@ -9,7 +9,8 @@ use Amp\Socket\Server;
 use Amp\Socket\Socket;
 use function Amp\call;
 
-class IpcParent {
+class IpcParent
+{
     const PING_TIMEOUT = 10000;
 
     /** @var Socket */
@@ -27,7 +28,8 @@ class IpcParent {
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Context $context, Socket $socket, callable $bind, callable $onData) {
+    public function __construct(Context $context, Socket $socket, callable $bind, callable $onData)
+    {
         $this->socket = $socket;
         $this->bind = $bind;
         $this->onData = $onData;
@@ -35,11 +37,13 @@ class IpcParent {
         $this->context = $context;
     }
 
-    public function send(string $event, $data = null): Promise {
+    public function send(string $event, $data = null): Promise
+    {
         return $this->context->send([IpcClient::TYPE_DATA, $event, $data]);
     }
 
-    public function run(): Promise {
+    public function run(): Promise
+    {
         return call(function () {
             $watcher = Loop::repeat(self::PING_TIMEOUT / 2, function () {
                 if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
@@ -65,7 +69,8 @@ class IpcParent {
         });
     }
 
-    private function handleMessage(array $message): \Generator {
+    private function handleMessage(array $message): \Generator
+    {
         \assert(\count($message) >= 1);
 
         switch ($message[0]) {

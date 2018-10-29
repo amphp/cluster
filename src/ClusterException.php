@@ -2,5 +2,6 @@
 
 namespace Amp\Cluster;
 
-class ClusterException extends \Exception {
+class ClusterException extends \Exception
+{
 }

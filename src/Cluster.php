@@ -17,7 +17,8 @@ use Psr\Log\LogLevel;
 use function Amp\asyncCall;
 use function Amp\call;
 
-final class Cluster {
+final class Cluster
+{
     use CallableMaker;
 
     /** @var IpcClient */
@@ -37,7 +38,8 @@ final class Cluster {
      * @param Channel             $channel
      * @param Socket\ClientSocket $socket
      */
-    private static function init(Channel $channel, Socket\ClientSocket $socket) {
+    private static function init(Channel $channel, Socket\ClientSocket $socket)
+    {
         /** @noinspection PhpDeprecationInspection */
         self::$client = new IpcClient($channel, $socket, self::callableFromStaticMethod("onReceivedMessage"));
 
@@ -57,7 +59,8 @@ final class Cluster {
      *
      * @return Promise
      */
-    private static function terminate(): Promise {
+    private static function terminate(): Promise
+    {
         if (self::$onClose === null) {
             return new Success;
         }
@@ -90,7 +93,8 @@ final class Cluster {
     /**
      * @return bool
      */
-    public static function isWorker(): bool {
+    public static function isWorker(): bool
+    {
         return self::$client !== null;
     }
 
@@ -137,7 +141,8 @@ final class Cluster {
      * @param string $event
      * @param mixed $data
      */
-    private static function onReceivedMessage(string $event, $data) {
+    private static function onReceivedMessage(string $event, $data)
+    {
         foreach (self::$onMessage[$event] ?? [] as $callback) {
             asyncCall($callback, $data);
         }
@@ -149,7 +154,8 @@ final class Cluster {
      * @param string $event
      * @param callable $callback
      */
-    public static function onMessage(string $event, callable $callback) {
+    public static function onMessage(string $event, callable $callback)
+    {
         self::$onMessage[$event][] = $callback;
     }
 
@@ -159,7 +165,8 @@ final class Cluster {
      *
      * @return Promise
      */
-    public static function send(string $event, $data = null): Promise {
+    public static function send(string $event, $data = null): Promise
+    {
         if (!self::isWorker()) {
             return new Success; // Ignore sent messages when running as a standalone process.
         }
@@ -170,7 +177,8 @@ final class Cluster {
     /**
      * @param callable $callable Callable to invoke to shutdown the process.
      */
-    public static function onTerminate(callable $callable) {
+    public static function onTerminate(callable $callable)
+    {
         if (self::$onClose === null) {
             return;
         }
@@ -205,7 +213,8 @@ final class Cluster {
      *
      * @throws \Error Thrown if not running as a worker.
      */
-    public static function createLogHandler(string $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface {
+    public static function createLogHandler(string $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface
+    {
         if (!self::isWorker()) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
                 "Create your own log handler when not running as part of a cluster");

@@ -16,7 +16,8 @@ use Psr\Log\LoggerInterface as PsrLogger;
 use function Amp\asyncCall;
 use function Amp\call;
 
-final class Watcher {
+final class Watcher
+{
     use CallableMaker;
 
     const WORKER_TIMEOUT = 5000;
@@ -58,7 +59,8 @@ final class Watcher {
      * @param string|string[]  $script Script path and optional arguments.
      * @param PsrLogger $logger
      */
-    public function __construct($script, PsrLogger $logger) {
+    public function __construct($script, PsrLogger $logger)
+    {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
         }
@@ -81,7 +83,8 @@ final class Watcher {
         $this->bind = $this->callableFromInstanceMethod("bindSocket");
     }
 
-    public function __destruct() {
+    public function __destruct()
+    {
         if ($this->running) {
             $this->stop();
         }
@@ -93,7 +96,8 @@ final class Watcher {
      * @param string   $event
      * @param callable $callback
      */
-    public function onMessage(string $event, callable $callback) {
+    public function onMessage(string $event, callable $callback)
+    {
         $this->onMessage[$event][] = $callback;
     }
 
@@ -102,7 +106,8 @@ final class Watcher {
      *
      * @return Promise Resolved when the cluster has stopped.
      */
-    public function run(int $count): Promise {
+    public function run(int $count): Promise
+    {
         if ($this->running) {
             throw new \Error("The cluster is already running");
         }
@@ -131,7 +136,8 @@ final class Watcher {
         });
     }
 
-    private function startWorker(): Promise {
+    private function startWorker(): Promise
+    {
         return $this->startPromise = call(function () {
             if ($this->startPromise) {
                 yield $this->startPromise; // Wait for previous worker to start, required for IPC socket identification.
@@ -207,7 +213,8 @@ final class Watcher {
     /**
      * Stops the cluster.
      */
-    public function stop() {
+    public function stop()
+    {
         if (!$this->running) {
             return;
         }
@@ -264,7 +271,8 @@ final class Watcher {
      *
      * @return Promise Resolved once data has been sent to all workers.
      */
-    public function broadcast($data): Promise {
+    public function broadcast($data): Promise
+    {
         $promises = [];
         /** @var Internal\IpcParent $worker */
         foreach ($this->workers as $worker) {
@@ -279,7 +287,8 @@ final class Watcher {
      *
      * @return resource Stream socket server resource.
      */
-    private function bindSocket(string $uri) {
+    private function bindSocket(string $uri)
+    {
         if (isset($this->sockets[$uri])) {
             return $this->sockets[$uri];
         }

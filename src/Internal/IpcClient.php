@@ -9,7 +9,8 @@ use Amp\Promise;
 use Amp\Socket\ClientSocket;
 use function Amp\call;
 
-final class IpcClient {
+final class IpcClient
+{
     const TYPE_PING = 0;
     const TYPE_DATA = 1;
     const TYPE_IMPORT_SOCKET = 2;
@@ -27,7 +28,8 @@ final class IpcClient {
     /** @var \SplQueue */
     private $pendingResponses;
 
-    public function __construct(Channel $channel, ClientSocket $socket, callable $onData) {
+    public function __construct(Channel $channel, ClientSocket $socket, callable $onData)
+    {
         $this->channel = $channel;
         $this->onData = $onData;
         $this->pendingResponses = $pendingResponses = new \SplQueue;
@@ -60,13 +62,15 @@ final class IpcClient {
         Loop::disable($this->importWatcher);
     }
 
-    public function __destruct() {
+    public function __destruct()
+    {
         if ($this->importWatcher !== null) {
             Loop::cancel($this->importWatcher);
         }
     }
 
-    public function run(): Promise {
+    public function run(): Promise
+    {
         return call(function () {
             while (null !== $message = yield $this->channel->receive()) {
                 yield from $this->handleMessage($message);
@@ -74,11 +78,13 @@ final class IpcClient {
         });
     }
 
-    public function close(): Promise {
+    public function close(): Promise
+    {
         return $this->channel->send(null);
     }
 
-    private function handleMessage(array $message): \Generator {
+    private function handleMessage(array $message): \Generator
+    {
         \assert(\count($message) >= 1);
 
         switch ($message[0]) {
@@ -108,7 +114,8 @@ final class IpcClient {
         }
     }
 
-    public function importSocket(string $uri): Promise {
+    public function importSocket(string $uri): Promise
+    {
         return call(function () use ($uri) {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
@@ -119,7 +126,8 @@ final class IpcClient {
         });
     }
 
-    public function selectPort(string $uri): Promise {
+    public function selectPort(string $uri): Promise
+    {
         return call(function () use ($uri) {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
@@ -130,7 +138,8 @@ final class IpcClient {
         });
     }
 
-    public function send(string $event, $data): Promise {
+    public function send(string $event, $data): Promise
+    {
         return $this->channel->send([self::TYPE_DATA, $event, $data]);
     }
 }

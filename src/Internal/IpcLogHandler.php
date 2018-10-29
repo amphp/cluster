@@ -7,13 +7,16 @@ use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Handler\HandlerInterface;
 use Psr\Log\LogLevel;
 
-final class IpcLogHandler extends AbstractProcessingHandler {
-    public function __construct(string $level = LogLevel::DEBUG, bool $bubble = false) {
+final class IpcLogHandler extends AbstractProcessingHandler
+{
+    public function __construct(string $level = LogLevel::DEBUG, bool $bubble = false)
+    {
         parent::__construct($level, $bubble);
     }
 
     /** @inheritdoc */
-    protected function write(array $record) {
+    protected function write(array $record)
+    {
         Cluster::send(HandlerInterface::class, $record);
     }
 }

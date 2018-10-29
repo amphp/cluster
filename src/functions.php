@@ -7,7 +7,8 @@ namespace Amp\Cluster;
  *
  * @return int
  */
-function countCpuCores(): int {
+function countCpuCores(): int
+{
     static $cores;
 
     if ($cores !== null) {
@@ -50,7 +51,8 @@ function countCpuCores(): int {
  *
  * @return bool
  */
-function canReusePort(): bool {
+function canReusePort(): bool
+{
     static $canReusePort;
 
     if ($canReusePort !== null) {
