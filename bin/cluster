@@ -1,11 +1,13 @@
 #!/usr/bin/env php
 <?php
 
-use Amp\ByteStream\ResourceOutputStream;
+use Amp\ByteStream;
 use Amp\Cluster\Watcher;
 use Amp\File;
+use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
 use Amp\Loop;
+use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
@@ -119,7 +121,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
             }
 
             if (!isset($flags[$argv[$i]])) {
-                throw new \Exception("Unknown command line option: {$argv[$i]}");
+                throw new Exception("Unknown command line option: {$argv[$i]}");
             }
 
             if (!$flags[$argv[$i]]) {
@@ -151,9 +153,14 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
 
     if ($arguments->defined("file")) {
         $logHandler = new StreamHandler(yield File\open($arguments->get("file"), "a"), $level);
+        $formatter = new LineFormatter;
     } else {
-        $logHandler = new StreamHandler(new ResourceOutputStream(\STDOUT), $level);
+        $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
+        $formatter = new ConsoleFormatter;
     }
+
+    $formatter->allowInlineLineBreaks(true);
+    $logHandler->setFormatter($formatter);
 
     $logger = new Logger("cluster");
     $logger->pushHandler($logHandler);
@@ -184,9 +191,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
             Loop::cancel($watcherId);
 
             $logger->info('Stopping cluster due to received signal: ' . $signal);
-            yield $watcher->stop();
-
-            Loop::stop();
+            $watcher->stop();
         };
 
         Loop::unreference(Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler, 'SIGINT'));
@@ -195,5 +200,5 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
         // ignore if extensions are missing or OS is Windows
     }
 
-    yield $watcher->start($workers);
+    yield $watcher->run($workers);
 });

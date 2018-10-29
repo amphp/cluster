@@ -5,19 +5,21 @@
 namespace Amp\Cluster;
 
 use Amp\CallableMaker;
+use Amp\Deferred;
 use Amp\MultiReasonException;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\Process;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
-use Amp\Success;
 use Psr\Log\LoggerInterface as PsrLogger;
 use function Amp\asyncCall;
 use function Amp\call;
 
 final class Watcher {
     use CallableMaker;
+
+    const WORKER_TIMEOUT = 5000;
 
     /** @var resource[] */
     private $sockets = [];
@@ -45,6 +47,12 @@ final class Watcher {
 
     /** @var callable[][] */
     private $onMessage = [];
+
+    /** @var Deferred|null */
+    private $deferred;
+
+    /** @var Promise|null */
+    private $startPromise;
 
     /**
      * @param string|string[]  $script Script path and optional arguments.
@@ -92,9 +100,9 @@ final class Watcher {
     /**
      * @param int $count Number of cluster workers to spawn.
      *
-     * @return Promise Succeeded when the cluster has started.
+     * @return Promise Resolved when the cluster has stopped.
      */
-    public function start(int $count): Promise {
+    public function run(int $count): Promise {
         if ($this->running) {
             throw new \Error("The cluster is already running");
         }
@@ -105,38 +113,44 @@ final class Watcher {
             throw new \Error("The number of workers must be greater than zero");
         }
 
+        $this->deferred = new Deferred;
         $this->running = true;
 
         return call(function () use ($count) {
-            for ($i = 0; $i < $count; ++$i) {
-                yield $this->startWorker();
+            try {
+                $promises = [];
+                for ($i = 0; $i < $count; ++$i) {
+                    $promises[] = $this->startWorker();
+                }
+                yield Promise\all($promises);
+            } catch (\Throwable $exception) {
+                $this->stop();
             }
+
+            return $this->deferred->promise();
         });
     }
 
     private function startWorker(): Promise {
-        return call(function () {
+        return $this->startPromise = call(function () {
+            if ($this->startPromise) {
+                yield $this->startPromise; // Wait for previous worker to start, required for IPC socket identification.
+            }
+
             $process = new Process($this->script);
-            $process->start();
+            yield $process->start();
 
             try {
-                /** @var Socket\ClientSocket $socket */
-                $socket = yield Promise\timeout($this->server->accept(), 5000);
+                $socket = yield Promise\timeout($this->server->accept(), self::WORKER_TIMEOUT);
             } catch (\Throwable $exception) {
                 if ($process->isRunning()) {
                     $process->kill();
                 }
 
-                yield $this->stop();
-                throw $exception;
+                throw new ClusterException("Starting the cluster worker failed", 0, $exception);
             }
-            
-            if (!$socket) {
-                if ($process->isRunning()) {
-                    $process->kill();
-                }
-                return;
-            }
+
+            \assert($socket instanceof Socket\ServerSocket);
 
             $worker = new Internal\IpcParent($process, $socket, $this->bind, function (string $event, $data) {
                 foreach ($this->onMessage[$event] ?? [] as $callback) {
@@ -144,20 +158,47 @@ final class Watcher {
                 }
             });
 
-            $this->workers->attach($worker, [$process, $promise = $worker->run()]);
-            $promise->onResolve(function ($error) {
-                if ($error) {
-                    if ($error instanceof ContextException) {
-                        $this->logger->error("Worker died unexpectedly" . ($this->running ? ", restarting..." : "."));
-                    } else {
-                        $this->logger->error((string) $error);
-                    }
-                } else {
+            $stdout = call(function () use ($process) {
+                $stream = $process->getStdout();
+                $stream->unreference();
+                while (null !== $chunk = yield $stream->read()) {
+                    $this->logger->info($chunk);
+                }
+            });
+
+            $stderr = call(function () use ($process) {
+                $stream = $process->getStderr();
+                $stream->unreference();
+                while (null !== $chunk = yield $stream->read()) {
+                    $this->logger->error($chunk);
+                }
+            });
+
+            $this->workers->attach($worker, [$process, $runner = $worker->run()]);
+
+            $promises = [$runner, $stdout, $stderr];
+
+            asyncCall(function () use ($worker, $promises) {
+                try {
+                    yield Promise\all($promises); // Wait for worker to exit.
                     $this->logger->info("Worker terminated cleanly" . ($this->running ? ", restarting..." : "."));
+                } catch (ContextException $exception) {
+                    $this->logger->error("Worker died unexpectedly" . ($this->running ? ", restarting..." : "."));
+                } catch (\Throwable $exception) {
+                    $this->logger->error((string) $exception);
+                } finally {
+                    $this->workers->detach($worker);
                 }
 
                 if ($this->running) {
-                    Promise\rethrow($this->startWorker());
+                    try {
+                        yield $this->startWorker();
+                    } catch (\Throwable $exception) {
+                        $deferred = $this->deferred;
+                        $this->deferred = null;
+                        $deferred->fail(new ClusterException("Restarting a worker failed", 0, $exception));
+                        $this->stop();
+                    }
                 }
             });
         });
@@ -166,14 +207,14 @@ final class Watcher {
     /**
      * Stops the cluster.
      */
-    public function stop(): Promise {
+    public function stop() {
         if (!$this->running) {
-            return new Success;
+            return;
         }
 
         $this->running = false;
 
-        return call(function () {
+        $promise = call(function () {
             $promises = [];
 
             /** @var Internal\IpcParent $worker */
@@ -182,21 +223,17 @@ final class Watcher {
                     /** @var Process $process */
                     list($process, $promise) = $this->workers[$worker];
 
-                    if (!$process->isRunning()) {
-                        // FIXME: With this early return graceful shutdown works unreliable,
-                        // this is because isRunning() returns false while the process is still running.
-                        // return;
-                    }
-
                     try {
                         yield $process->send(null);
-                        yield Promise\timeout($promise, 5000);
+                        yield Promise\timeout($promise, self::WORKER_TIMEOUT);
                     } catch (\Throwable $exception) {
                         if ($process->isRunning()) {
                             $process->kill();
                         }
 
-                        throw $exception;
+                        if (!$exception instanceof ContextException) {
+                            throw $exception;
+                        }
                     }
                 });
             }
@@ -208,9 +245,16 @@ final class Watcher {
             $this->workers = new \SplObjectStorage;
 
             if (!empty($exceptions)) {
-                throw new MultiReasonException($exceptions);
+                $exception = new MultiReasonException($exceptions);
+                throw new ClusterException("Stopping the cluster failed", 0, $exception);
             }
         });
+
+        if ($this->deferred) {
+            $deferred = $this->deferred;
+            $this->deferred = null;
+            $deferred->resolve($promise);
+        }
     }
 
     /**
