@@ -19,6 +19,7 @@ Loop::run(function () {
 
     $pid = \getmypid();
 
+    // Creating a log handler in this way allows the script to be run in a cluster or standalone.
     if (Cluster::isWorker()) {
         $handler = Cluster::createLogHandler();
     } else {
