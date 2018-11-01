@@ -8,7 +8,6 @@ use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Monolog\Formatter\LineFormatter;
-use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
 use function Amp\Cluster\countCpuCores;
@@ -74,7 +73,7 @@ $args = [
         "prefix" => "l",
         "longPrefix" => "log",
         "description" => "Set the minimum log output level",
-        "defaultValue" => LogLevel::INFO,
+        "defaultValue" => LogLevel::DEBUG,
     ],
     "file" => [
         "prefix" => "f",
@@ -145,11 +144,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
         exit(1);
     }
 
-    if ($arguments->defined("log")) {
-        $level = $arguments->get("log");
-    } else {
-        $level = LogLevel::INFO;
-    }
+    $level = $arguments->get("log");
 
     if ($arguments->defined("file")) {
         $logHandler = new StreamHandler(yield File\open($arguments->get("file"), "a"), $level);
@@ -182,12 +177,9 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
 
     \array_unshift($workerArguments, $arguments->get("script"));
     $watcher = new Watcher($workerArguments, $logger);
-    $watcher->onMessage(HandlerInterface::class, function ($record) use ($logHandler) {
-        $logHandler->handle($record);
-    });
 
     try {
-        $signalHandler = function ($watcherId, $signalNumber, $signal) use ($watcher, $logger) {
+        $signalHandler = function (string $watcherId, int $signalNumber, string $signal) use ($watcher, $logger) {
             Loop::cancel($watcherId);
 
             $logger->info('Stopping cluster due to received signal: ' . $signal);

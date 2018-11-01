@@ -220,7 +220,7 @@ final class Cluster
                 "Create your own log handler when not running as part of a cluster");
         }
 
-        return new Internal\IpcLogHandler($logLevel, $bubble);
+        return new Internal\IpcLogHandler(self::$client, $logLevel, $bubble);
     }
 
     /**

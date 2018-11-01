@@ -7,6 +7,7 @@ use Amp\Parallel\Context\Context;
 use Amp\Promise;
 use Amp\Socket\Server;
 use Amp\Socket\Socket;
+use Monolog\Logger;
 use function Amp\call;
 
 class IpcParent
@@ -22,16 +23,20 @@ class IpcParent
     /** @var callable */
     private $onData;
 
+    /** @var Logger */
+    private $logger;
+
     /** @var Context */
     private $context;
 
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Context $context, Socket $socket, callable $bind, callable $onData)
+    public function __construct(Context $context, Socket $socket, Logger $logger, callable $bind, callable $onData)
     {
         $this->socket = $socket;
         $this->bind = $bind;
+        $this->logger = $logger;
         $this->onData = $onData;
         $this->lastActivity = \time();
         $this->context = $context;
@@ -93,6 +98,7 @@ class IpcParent
                 break;
 
             case IpcClient::TYPE_SELECT_PORT:
+                \assert(\count($message) === 2);
                 $uri = $message[1];
                 $stream = ($this->bind)($uri);
                 $uri = (new Server($stream))->getAddress(); // Work around stream_socket_get_name + IPv6
@@ -103,7 +109,15 @@ class IpcParent
                 break;
 
             case IpcClient::TYPE_DATA:
+                \assert(\count($message) === 3);
                 ($this->onData)($message[1], $message[2]);
+                break;
+
+            case IpcClient::TYPE_LOG:
+                \assert(\count($message) === 2);
+                foreach ($this->logger->getHandlers() as $handler) {
+                    $handler->handle($message[1]);
+                }
                 break;
 
             default:

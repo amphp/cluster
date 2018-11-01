@@ -15,6 +15,7 @@ final class IpcClient
     const TYPE_DATA = 1;
     const TYPE_IMPORT_SOCKET = 2;
     const TYPE_SELECT_PORT = 3;
+    const TYPE_LOG = 4;
 
     /** @var string|null */
     private $importWatcher;
@@ -109,6 +110,9 @@ final class IpcClient
                 ($this->onData)($message[1], $message[2]);
                 break;
 
+            case self::TYPE_LOG:
+                throw new \UnexpectedValueException("Log messages should never be sent by the parent");
+
             default:
                 throw new \UnexpectedValueException("Unexpected message type");
         }
@@ -141,5 +145,10 @@ final class IpcClient
     public function send(string $event, $data): Promise
     {
         return $this->channel->send([self::TYPE_DATA, $event, $data]);
+    }
+
+    public function log(array $record): Promise
+    {
+        return $this->channel->send([self::TYPE_LOG, $record]);
     }
 }

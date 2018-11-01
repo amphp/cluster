@@ -12,7 +12,7 @@ use Amp\Parallel\Context\Process;
 use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
-use Psr\Log\LoggerInterface as PsrLogger;
+use Monolog\Logger;
 use function Amp\asyncCall;
 use function Amp\call;
 
@@ -57,9 +57,9 @@ final class Watcher
 
     /**
      * @param string|string[]  $script Script path and optional arguments.
-     * @param PsrLogger $logger
+     * @param Logger $logger
      */
-    public function __construct($script, PsrLogger $logger)
+    public function __construct($script, Logger $logger)
     {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
@@ -158,7 +158,7 @@ final class Watcher
 
             \assert($socket instanceof Socket\ServerSocket);
 
-            $worker = new Internal\IpcParent($process, $socket, $this->bind, function (string $event, $data) {
+            $worker = new Internal\IpcParent($process, $socket, $this->logger, $this->bind, function (string $event, $data) {
                 foreach ($this->onMessage[$event] ?? [] as $callback) {
                     asyncCall($callback, $data);
                 }
@@ -168,7 +168,7 @@ final class Watcher
                 $stream = $process->getStdout();
                 $stream->unreference();
                 while (null !== $chunk = yield $stream->read()) {
-                    $this->logger->info($chunk);
+                    $this->logger->info(\sprintf('STDOUT from PID %d: %s', $process->getPid(), $chunk));
                 }
             });
 
@@ -176,7 +176,7 @@ final class Watcher
                 $stream = $process->getStderr();
                 $stream->unreference();
                 while (null !== $chunk = yield $stream->read()) {
-                    $this->logger->error($chunk);
+                    $this->logger->error(\sprintf('STDERR from PID %d: %s', $process->getPid(), $chunk));
                 }
             });
 

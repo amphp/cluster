@@ -2,21 +2,23 @@
 
 namespace Amp\Cluster\Internal;
 
-use Amp\Cluster\Cluster;
 use Monolog\Handler\AbstractProcessingHandler;
-use Monolog\Handler\HandlerInterface;
 use Psr\Log\LogLevel;
 
 final class IpcLogHandler extends AbstractProcessingHandler
 {
-    public function __construct(string $level = LogLevel::DEBUG, bool $bubble = false)
+    /** @var IpcClient */
+    private $client;
+
+    public function __construct(IpcClient $client, string $level = LogLevel::DEBUG, bool $bubble = false)
     {
         parent::__construct($level, $bubble);
+        $this->client = $client;
     }
 
     /** @inheritdoc */
     protected function write(array $record)
     {
-        Cluster::send(HandlerInterface::class, $record);
+        $this->client->log($record);
     }
 }
