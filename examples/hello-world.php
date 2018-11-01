@@ -2,7 +2,7 @@
 
 require \dirname(__DIR__) . "/vendor/autoload.php";
 
-use Amp\ByteStream\ResourceOutputStream;
+use Amp\ByteStream;
 use Amp\Cluster\Cluster;
 use Amp\Delayed;
 use Amp\Log\ConsoleFormatter;
@@ -23,7 +23,7 @@ Loop::run(function () {
     if (Cluster::isWorker()) {
         $handler = Cluster::createLogHandler();
     } else {
-        $handler = new StreamHandler(new ResourceOutputStream(\STDOUT));
+        $handler = new StreamHandler(ByteStream\getStdout());
         $handler->setFormatter(new ConsoleFormatter);
     }
 

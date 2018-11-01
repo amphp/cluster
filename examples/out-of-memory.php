@@ -9,9 +9,9 @@ use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Monolog\Logger;
 
-// Run using bin/cluster -s examples/failing-process.php -w 1
-// The single cluster worker started will fail in 1 to 5 seconds and automatically restart
-// until the main process is terminated.
+// Run using bin/cluster -s examples/out-of-memory.php -w 1
+// The single cluster worker started will continuously allocate memory until failing due to
+// exceeding the configured limit. The cluster watcher will automatically restart the process.
 
 Loop::run(function () {
     $pid = \getmypid();
@@ -27,14 +27,15 @@ Loop::run(function () {
     $logger = new Logger('worker-' . $pid);
     $logger->pushHandler($handler);
 
-    $timeout = \random_int(1, 5);
+    $buffer = "";
 
-    Loop::delay($timeout * 1000, function () {
-        \trigger_error("Process failed", E_USER_ERROR);
-        exit(1);
+    Loop::repeat(100, function () use (&$buffer, $logger, $pid) {
+        $allocationSize = \random_int(2 ** 20, 2 ** 23);
+        $logger->info(\sprintf("Allocating %s bytes in PID %d", $allocationSize, $pid));
+        $buffer .= \str_repeat("a", $allocationSize);
     });
 
-    $logger->info(\sprintf("Process %d started, failing in %d seconds", $pid, $timeout));
+    $logger->info(\sprintf("Process %d started.", $pid));
 
     Cluster::onTerminate(function () use ($logger) {
         $logger->info("Received termination request");
