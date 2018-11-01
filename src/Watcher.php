@@ -184,27 +184,34 @@ final class Watcher
 
             $promises = [$runner, $stdout, $stderr];
 
-            asyncCall(function () use ($worker, $promises) {
+            asyncCall(function () use ($worker, $process, $promises) {
                 try {
-                    yield Promise\all($promises); // Wait for worker to exit.
-                    $this->logger->info("Worker terminated cleanly" . ($this->running ? ", restarting..." : "."));
-                } catch (ContextException $exception) {
-                    $this->logger->error("Worker died unexpectedly" . ($this->running ? ", restarting..." : "."));
-                } catch (\Throwable $exception) {
-                    $this->logger->error((string) $exception);
-                } finally {
-                    $this->workers->detach($worker);
-                }
-
-                if ($this->running) {
                     try {
-                        yield $this->startWorker();
+                        yield Promise\all($promises); // Wait for worker to exit.
+                        $this->logger->info("Worker {$process->getPid()} terminated cleanly" .
+                            ($this->running ? ", restarting..." : "."));
+                    } catch (ContextException $exception) {
+                        $this->logger->error("Worker {$process->getPid()} died unexpectedly" .
+                            ($this->running ? ", restarting..." : "."));
                     } catch (\Throwable $exception) {
-                        $deferred = $this->deferred;
-                        $this->deferred = null;
-                        $deferred->fail(new ClusterException("Restarting a worker failed", 0, $exception));
-                        $this->stop();
+                        $this->logger->error("Worker {$process->getPid()} failed: " . (string) $exception);
+                        throw $exception;
+                    } finally {
+                        if ($process->isRunning()) {
+                            $process->kill();
+                        }
+
+                        $this->workers->detach($worker);
                     }
+
+                    if ($this->running) {
+                        yield $this->startWorker();
+                    }
+                } catch (\Throwable $exception) {
+                    $deferred = $this->deferred;
+                    $this->deferred = null;
+                    $deferred->fail(new ClusterException("Worker failed", 0, $exception));
+                    $this->stop();
                 }
             });
         });
