@@ -29,11 +29,16 @@ class IpcParent
     /** @var Context */
     private $context;
 
+    /** @var string|null */
+    private $watcher;
+
     /** @var int */
     private $lastActivity;
 
     public function __construct(Context $context, Socket $socket, Logger $logger, callable $bind, callable $onData)
     {
+        \assert($context->isRunning(), "The context must already be running");
+
         $this->socket = $socket;
         $this->bind = $bind;
         $this->logger = $logger;
@@ -49,15 +54,15 @@ class IpcParent
 
     public function run(): Promise
     {
-        return call(function () {
-            $watcher = Loop::repeat(self::PING_TIMEOUT / 2, function () {
-                if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
-                    $this->socket->close();
-                } else {
-                    $this->context->send([IpcClient::TYPE_PING]);
-                }
-            });
+        $this->watcher = Loop::repeat(self::PING_TIMEOUT / 2, function () {
+            if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
+                $this->shutdown();
+            } else {
+                $this->context->send([IpcClient::TYPE_PING]);
+            }
+        });
 
+        return call(function () {
             try {
                 while (null !== $message = yield $this->context->receive()) {
                     $this->lastActivity = \time();
@@ -66,12 +71,20 @@ class IpcParent
 
                 return yield $this->context->join();
             } finally {
-                Loop::cancel($watcher);
+                Loop::cancel($this->watcher);
 
                 $this->socket->close();
                 $this->socket = null;
             }
         });
+    }
+
+    public function shutdown(): Promise
+    {
+        if ($this->watcher) {
+            Loop::disable($this->watcher);
+        }
+        return $this->context->send(null);
     }
 
     private function handleMessage(array $message): \Generator
@@ -80,6 +93,7 @@ class IpcParent
 
         switch ($message[0]) {
             case IpcClient::TYPE_IMPORT_SOCKET:
+                \assert(\count($message) === 2);
                 $uri = $message[1];
 
                 $stream = ($this->bind)($uri);

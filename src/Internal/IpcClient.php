@@ -90,14 +90,17 @@ final class IpcClient
 
         switch ($message[0]) {
             case self::TYPE_PING:
+                \assert(\count($message) === 1);
                 yield $this->channel->send([self::TYPE_PING]);
                 break;
 
             case self::TYPE_IMPORT_SOCKET:
+                \assert(\count($message) === 1);
                 Loop::enable($this->importWatcher);
                 break;
 
             case self::TYPE_SELECT_PORT:
+                \assert(\count($message) === 2);
                 if ($this->pendingResponses->isEmpty()) {
                     throw new \RuntimeException("Unexpected select-port message.");
                 }
@@ -107,6 +110,7 @@ final class IpcClient
                 break;
 
             case self::TYPE_DATA:
+                \assert(\count($message) === 3);
                 ($this->onData)($message[1], $message[2]);
                 break;
 

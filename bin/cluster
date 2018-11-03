@@ -7,6 +7,7 @@ use Amp\File;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
 use Amp\Loop;
+use Amp\Promise;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
@@ -188,6 +189,14 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
 
         Loop::unreference(Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler, 'SIGINT'));
         Loop::unreference(Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler, 'SIGTERM'));
+
+        $signalHandler = function (string $watcherId, int $signalNumber, string $signal) use ($watcher, $logger): Promise {
+            $logger->info('Restarting cluster due to received signal: ' . $signal);
+            return $watcher->restart();
+        };
+
+        Loop::unreference(Loop::onSignal(\defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler, 'SIGUSR1'));
+        Loop::unreference(Loop::onSignal(\defined('SIGUSR2') ? \SIGUSR2 : 12, $signalHandler, 'SIGUSR2'));
     } catch (Loop\UnsupportedFeatureException $e) {
         // ignore if extensions are missing or OS is Windows
     }

@@ -108,8 +108,8 @@ final class Watcher
      */
     public function run(int $count): Promise
     {
-        if ($this->running) {
-            throw new \Error("The cluster is already running");
+        if ($this->running || $this->deferred) {
+            throw new \Error("The cluster is already running or has already run");
         }
 
         $this->server = Socket\listen($this->uri);
@@ -180,14 +180,12 @@ final class Watcher
                 }
             });
 
-            $this->workers->attach($worker, [$process, $runner = $worker->run()]);
+            $runner = $worker->run();
 
-            $promises = [$runner, $stdout, $stderr];
-
-            asyncCall(function () use ($worker, $process, $promises) {
+            $promise = call(function () use ($worker, $process, $runner, $stdout, $stderr) {
                 try {
                     try {
-                        yield Promise\all($promises); // Wait for worker to exit.
+                        yield $runner; // Wait for worker to exit.
                         $this->logger->info("Worker {$process->getPid()} terminated cleanly" .
                             ($this->running ? ", restarting..." : "."));
                     } catch (ContextException $exception) {
@@ -207,6 +205,9 @@ final class Watcher
                     if ($this->running) {
                         yield $this->startWorker();
                     }
+
+                    // Wait for the STDIO streams to be consumed and closed.
+                    yield Promise\all([$stdout, $stderr]);
                 } catch (\Throwable $exception) {
                     $deferred = $this->deferred;
                     $this->deferred = null;
@@ -214,6 +215,41 @@ final class Watcher
                     $this->stop();
                 }
             });
+
+            $this->workers->attach($worker, [$process, $promise]);
+        });
+    }
+
+    /**
+     * @return Promise
+     */
+    public function restart(): Promise
+    {
+        return call(function () {
+            $promises = [];
+            foreach (clone $this->workers as $worker) {
+                \assert($worker instanceof Internal\IpcParent);
+                list($process, $promise) = $this->workers[$worker];
+                \assert($process instanceof Process);
+
+                $promises[] = call(function () use ($worker, $process, $promise) {
+                    try {
+                        yield $worker->shutdown();
+                        yield Promise\timeout($promise, self::WORKER_TIMEOUT);
+                    } finally {
+                        if ($process->isRunning()) {
+                            $process->kill();
+                        }
+                    }
+                });
+            }
+
+            try {
+                yield Promise\all($promises);
+            } catch (\Throwable $exception) {
+                $this->stop();
+                throw $exception;
+            }
         });
     }
 
@@ -230,23 +266,20 @@ final class Watcher
 
         $promise = call(function () {
             $promises = [];
-
-            /** @var Internal\IpcParent $worker */
-            foreach ($this->workers as $worker) {
+            foreach (clone $this->workers as $worker) {
+                \assert($worker instanceof Internal\IpcParent);
                 $promises[] = call(function () use ($worker) {
-                    /** @var Process $process */
                     list($process, $promise) = $this->workers[$worker];
+                    \assert($process instanceof Process);
 
                     try {
-                        yield $process->send(null);
+                        yield $worker->shutdown();
                         yield Promise\timeout($promise, self::WORKER_TIMEOUT);
-                    } catch (\Throwable $exception) {
+                    } catch (ContextException $exception) {
+                        // Ignore if the worker has already died unexpectedly.
+                    } finally {
                         if ($process->isRunning()) {
                             $process->kill();
-                        }
-
-                        if (!$exception instanceof ContextException) {
-                            throw $exception;
                         }
                     }
                 });
