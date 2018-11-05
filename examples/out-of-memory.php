@@ -9,7 +9,7 @@ use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Monolog\Logger;
 
-// Run using bin/cluster -s examples/out-of-memory.php -w 1
+// Run using bin/cluster -w 1 examples/out-of-memory.php
 // The single cluster worker started will continuously allocate memory until failing due to
 // exceeding the configured limit. The cluster watcher will automatically restart the process.
 

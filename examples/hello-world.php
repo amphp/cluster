@@ -10,7 +10,7 @@ use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Monolog\Logger;
 
-// Run using bin/cluster -s examples/hello-world.php
+// Run using bin/cluster examples/hello-world.php
 // Then connect using nc localhost 1337 multiple times to see the PID of the accepting process change.
 
 Loop::run(function () {

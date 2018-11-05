@@ -9,7 +9,7 @@ use Amp\Log\StreamHandler;
 use Amp\Loop;
 use Monolog\Logger;
 
-// Run using bin/cluster -s examples/failing-process.php -w 1
+// Run using bin/cluster -w 1 examples/failing-process.php
 // The single cluster worker started will fail in 1 to 5 seconds and automatically restart
 // until the main process is terminated.
 

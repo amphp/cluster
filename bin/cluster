@@ -17,24 +17,26 @@ if (\function_exists("cli_set_process_title")) {
     @\cli_set_process_title("amp-cluster");
 }
 
-$help = <<<EOT
+const HELP = <<<EOT
             __           __
       _____/ /_  _______/ /____  _____
      / ___/ / / / / ___/ __/ _ \/ ___/
     / /__/ / /_/ (__  ) /_/  __/ /
     \___/_/\__,_/____/\__/\___/_/
 
-    -s, --script      Defines the script to run (required)
-    -h, --help        Display the help screen
-    -l, --log         Set the minimum log output level (default: info)
+    Usage: [options] [script path]
+
+    Options:
+    -h, --help        Display this help message
+    -l, --log         Set the minimum log output level (default: debug)
     -w, --workers     Manually specify worker count (default: CPU core count)
     --                Marker to separate cluster and worker arguments
 
     Example Usage:
     cluster --help
-    cluster -s /path/to/script.php -w 4
-    cluster -s /another/script/path.php -l warning
-    cluster -s server.php -- --port 8080
+    cluster -w 4 /path/to/script.php
+    cluster -l warning /another/script/path.php
+    cluster server.php -- --port 8080
 
 
 EOT;
@@ -85,10 +87,9 @@ $args = [
         "longPrefix" => "workers",
         "description" => "Manually specify worker count",
         "castTo" => "int",
+        "defaultValue" => countCpuCores(),
     ],
     "script" => [
-        "prefix" => "s",
-        "longPrefix" => "script",
         "description" => "Defines the script to run",
     ],
 ];
@@ -108,7 +109,7 @@ foreach ($args as $arg) {
 $arguments = new League\CLImate\Argument\Manager;
 $arguments->add($args);
 
-Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
+Loop::run(function () use ($argc, $argv, $flags, $arguments) {
     try {
         $workerArguments = [];
 
@@ -119,34 +120,34 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
                 break;
             }
 
-            if (!isset($flags[$argv[$i]])) {
+            if (isset($flags[$argv[$i]])) {
+                if (!$flags[$argv[$i]]) {
+                    $i++;
+                }
+            } elseif ($argv[0] === "-") {
                 throw new Exception("Unknown command line option: {$argv[$i]}");
-            }
-
-            if (!$flags[$argv[$i]]) {
-                $i++;
             }
         }
 
         $arguments->parse($argv);
 
-        if ($arguments->defined("help")) {
-            echo $help;
+        if ($arguments->defined("help", $argv)) {
+            echo HELP;
             exit(0);
         }
 
-        if (!$arguments->defined("script")) {
-            throw new Exception("Script path argument is required (-s or --script)");
+        if ($arguments->get("script") === null) {
+            throw new Exception("Script path is required");
         }
     } catch (Exception $e) {
         echo "Invalid arguments: " . $e->getMessage() . PHP_EOL . PHP_EOL;
-        echo $help;
+        echo HELP;
         exit(1);
     }
 
     $level = $arguments->get("log");
 
-    if ($arguments->defined("file")) {
+    if ($arguments->defined("file", $argv)) {
         $logHandler = new StreamHandler(yield File\open($arguments->get("file"), "a"), $level);
         $formatter = new LineFormatter;
     } else {
@@ -160,11 +161,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments, $help) {
     $logger = new Logger("cluster");
     $logger->pushHandler($logHandler);
 
-    if ($arguments->defined("workers")) {
-        $workers = $arguments->get("workers");
-    } else {
-        $workers = countCpuCores();
-    }
+    $workers = $arguments->get("workers");
 
     $script = $arguments->get("script");
 
