@@ -200,5 +200,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments) {
         // ignore if extensions are missing or OS is Windows
     }
 
-    yield $watcher->run($workers);
+    yield $watcher->start($workers);
+
+    yield $watcher->join();
 });

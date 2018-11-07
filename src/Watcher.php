@@ -104,9 +104,9 @@ final class Watcher
     /**
      * @param int $count Number of cluster workers to spawn.
      *
-     * @return Promise Resolved when the cluster has stopped.
+     * @return Promise Resolved when the cluster has started.
      */
-    public function run(int $count): Promise
+    public function start(int $count): Promise
     {
         if ($this->running || $this->deferred) {
             throw new \Error("The cluster is already running or has already run");
@@ -130,9 +130,8 @@ final class Watcher
                 yield Promise\all($promises);
             } catch (\Throwable $exception) {
                 $this->stop();
+                throw $exception;
             }
-
-            return $this->deferred->promise();
         });
     }
 
@@ -141,6 +140,10 @@ final class Watcher
         return $this->startPromise = call(function () {
             if ($this->startPromise) {
                 yield $this->startPromise; // Wait for previous worker to start, required for IPC socket identification.
+            }
+
+            if (!$this->running) {
+                return; // Cluster stopped while waiting, abort starting worker.
             }
 
             $process = new Process($this->script);
@@ -209,15 +212,34 @@ final class Watcher
                     // Wait for the STDIO streams to be consumed and closed.
                     yield Promise\all([$stdout, $stderr]);
                 } catch (\Throwable $exception) {
-                    $deferred = $this->deferred;
-                    $this->deferred = null;
-                    $deferred->fail(new ClusterException("Worker failed", 0, $exception));
                     $this->stop();
+                    throw $exception;
                 }
             });
 
+            if (!$this->running) {
+                // Cluster stopped while worker was starting, so immediately shutdown the worker.
+                yield $worker->shutdown();
+                return;
+            }
+
             $this->workers->attach($worker, [$process, $promise]);
         });
+    }
+
+    /**
+     * Returns a promise that is succeeds when the cluster has stopped or fails if a worker cannot be restarted or
+     * if stopping the cluster fails.
+     *
+     * @return Promise
+     */
+    public function join(): Promise
+    {
+        if (!$this->deferred) {
+            throw new \Error("The cluster has not been started");
+        }
+
+        return $this->deferred->promise();
     }
 
     /**
@@ -293,15 +315,15 @@ final class Watcher
 
             if (!empty($exceptions)) {
                 $exception = new MultiReasonException($exceptions);
-                throw new ClusterException("Stopping the cluster failed", 0, $exception);
+                $message = \array_reduce($exception->getReasons(), function (string $message, \Throwable $exception): string {
+                    return $message . $exception->getMessage() . "; ";
+                }, "");
+                $message = \trim($message, " ;");
+                throw new ClusterException("Stopping the cluster failed: " . $message, 0, $exception);
             }
         });
 
-        if ($this->deferred) {
-            $deferred = $this->deferred;
-            $this->deferred = null;
-            $deferred->resolve($promise);
-        }
+        $this->deferred->resolve($promise);
     }
 
     /**
@@ -346,7 +368,8 @@ final class Watcher
         ]);
 
         // Do NOT use STREAM_SERVER_LISTEN here - we explicitly invoke \socket_listen() in our worker processes
-        if (!$socket = \stream_socket_server($uri, $errno, $errstr, STREAM_SERVER_BIND, $context)) {
+        // Error reporting suppressed as error is immediately checked and reported with an exception.
+        if (!$socket = @\stream_socket_server($uri, $errno, $errstr, STREAM_SERVER_BIND, $context)) {
             throw new \RuntimeException(\sprintf("Failed binding socket on %s: [Err# %s] %s", $uri, $errno, $errstr));
         }
 
