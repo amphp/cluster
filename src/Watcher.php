@@ -31,17 +31,17 @@ final class Watcher
     /** @var string[] */
     private $script;
 
-    /** @var PsrLogger */
+    /** @var Logger */
     private $logger;
-
-    /** @var string Socket server URI */
-    private $uri;
 
     /** @var Server */
     private $server;
 
     /** @var callable */
     private $bind;
+
+    /** @var callable */
+    private $notify;
 
     /** @var \SplObjectStorage */
     private $workers;
@@ -70,10 +70,23 @@ final class Watcher
         }
 
         $this->logger = $logger;
-        $this->uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
+
+        $isWindows = \strncasecmp(\PHP_OS, "WIN", 3) === 0;
+
+        if ($isWindows) {
+            $uri = "tcp://127.0.0.1:0";
+        } else {
+            $uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
+        }
+
+        $this->server = Socket\listen($uri);
+
+        if ($isWindows) {
+            $uri = "tcp://" . $this->server->getAddress(); // Get address to determine port.
+        }
 
         $this->script = \array_merge(
-            [__DIR__ . '/Internal/cluster-runner.php', $this->uri],
+            [__DIR__ . '/Internal/cluster-runner.php', $uri],
             \is_array($script) ? \array_values(\array_map("\\strval", $script)) : [(string) $script]
         );
 
@@ -81,6 +94,7 @@ final class Watcher
 
         /** @noinspection PhpDeprecationInspection */
         $this->bind = $this->callableFromInstanceMethod("bindSocket");
+        $this->notify = $this->callableFromInstanceMethod("onReceivedMessage");
     }
 
     public function __destruct()
@@ -111,8 +125,6 @@ final class Watcher
         if ($this->running || $this->deferred) {
             throw new \Error("The cluster is already running or has already run");
         }
-
-        $this->server = Socket\listen($this->uri);
 
         if ($count <= 0) {
             throw new \Error("The number of workers must be greater than zero");
@@ -159,13 +171,7 @@ final class Watcher
                 throw new ClusterException("Starting the cluster worker failed", 0, $exception);
             }
 
-            \assert($socket instanceof Socket\ServerSocket);
-
-            $worker = new Internal\IpcParent($process, $socket, $this->logger, $this->bind, function (string $event, $data) {
-                foreach ($this->onMessage[$event] ?? [] as $callback) {
-                    asyncCall($callback, $data);
-                }
-            });
+            $worker = new Internal\IpcParent($process, $socket, $this->logger, $this->bind, $this->notify);
 
             $stdout = call(function () use ($process) {
                 $stream = $process->getStdout();
@@ -315,10 +321,9 @@ final class Watcher
 
             if (!empty($exceptions)) {
                 $exception = new MultiReasonException($exceptions);
-                $message = \array_reduce($exception->getReasons(), function (string $message, \Throwable $exception): string {
-                    return $message . $exception->getMessage() . "; ";
-                }, "");
-                $message = \trim($message, " ;");
+                $message = \implode('; ', \array_map(function (\Throwable $exception): string {
+                    return $exception->getMessage();
+                }, $exceptions));
                 throw new ClusterException("Stopping the cluster failed: " . $message, 0, $exception);
             }
         });
@@ -343,8 +348,9 @@ final class Watcher
         return Promise\all($promises);
     }
 
-    /* @noinspection PhpUnusedPrivateMethodInspection */
     /**
+     * @noinspection PhpUnusedPrivateMethodInspection
+     *
      * @param string $uri
      *
      * @return resource Stream socket server resource.
@@ -374,5 +380,18 @@ final class Watcher
         }
 
         return $this->sockets[$uri] = $socket;
+    }
+
+    /**
+     * @noinspection PhpUnusedPrivateMethodInspection
+     *
+     * @param string $event
+     * @param mixed $data
+     */
+    private function onReceivedMessage(string $event, $data)
+    {
+        foreach ($this->onMessage[$event] ?? [] as $callback) {
+            asyncCall($callback, $data);
+        }
     }
 }

@@ -29,14 +29,15 @@ Loop::run(function () {
 
     $timeout = \random_int(1, 5);
 
-    Loop::delay($timeout * 1000, function () {
+    $watcher = Loop::delay($timeout * 1000, function () {
         \trigger_error("Process failed", E_USER_ERROR);
         exit(1);
     });
 
     $logger->info(\sprintf("Process %d started, failing in %d seconds", $pid, $timeout));
 
-    Cluster::onTerminate(function () use ($logger) {
+    Cluster::onTerminate(function () use ($logger, $watcher) {
         $logger->info("Received termination request");
+        Loop::cancel($watcher);
     });
 });

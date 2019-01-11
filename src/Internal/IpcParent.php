@@ -10,7 +10,7 @@ use Amp\Socket\Socket;
 use Monolog\Logger;
 use function Amp\call;
 
-class IpcParent
+final class IpcParent
 {
     const PING_TIMEOUT = 10000;
 
