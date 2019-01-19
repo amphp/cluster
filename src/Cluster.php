@@ -7,6 +7,7 @@ namespace Amp\Cluster;
 use Amp\CallableMaker;
 use Amp\Cluster\Internal\IpcClient;
 use Amp\Loop;
+use Amp\MultiReasonException;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
 use Amp\Socket;
@@ -33,8 +34,9 @@ final class Cluster
     /** @var string[] */
     private static $signalWatchers;
 
-    /* @noinspection PhpUnusedPrivateMethodInspection */
     /**
+     * @noinspection PhpUnusedPrivateMethodInspection
+     *
      * @param Channel             $channel
      * @param Socket\ClientSocket $socket
      *
@@ -46,11 +48,55 @@ final class Cluster
         self::$client = new IpcClient($channel, $socket, self::callableFromStaticMethod("onReceivedMessage"));
 
         return call(static function () {
-            yield self::$client->run();
-            yield self::terminate();
-            yield self::$client->close();
+            try {
+                yield self::$client->run();
+            } catch (\Throwable $exception) {
+                // Exception rethrown below as part of MultiReasonException.
+            }
+
+            list($exceptions) = yield self::terminate();
+
+            if (isset($exception)) {
+                $exceptions[] = $exception;
+            }
+
+            try {
+                yield self::$client->close();
+            } catch (\Throwable $exception) {
+                $exceptions[] = $exception;
+            }
 
             self::$client = null;
+
+            if (!empty($exceptions)) {
+                $exception = new MultiReasonException($exceptions);
+                $message = \implode('; ', \array_map(function (\Throwable $exception): string {
+                    return $exception->getMessage();
+                }, $exceptions));
+                throw new ClusterException("Cluster worker failed: " . $message, 0, $exception);
+            }
+        });
+    }
+
+    /**
+     * @noinspection PhpUnusedPrivateMethodInspection
+     *
+     * Used as the termination signal callback when not running as a cluster worker.
+     *
+     * @return Promise
+     */
+    private static function stop(): Promise
+    {
+        return call(function () {
+            list($exceptions) = yield self::terminate();
+
+            if (!empty($exceptions)) {
+                $exception = new MultiReasonException($exceptions);
+                $message = \implode('; ', \array_map(function (\Throwable $exception): string {
+                    return $exception->getMessage();
+                }, $exceptions));
+                throw new ClusterException("Stopping failed: " . $message, 0, $exception);
+            }
         });
     }
 
@@ -62,7 +108,7 @@ final class Cluster
     private static function terminate(): Promise
     {
         if (self::$onClose === null) {
-            return new Success;
+            return Promise\any([]);
         }
 
         if (self::$signalWatchers) {
@@ -79,15 +125,7 @@ final class Cluster
             $promises[] = call($callable);
         }
 
-        $promise = Promise\all($promises);
-
-        if (!self::isWorker()) {
-            $promise->onResolve(function () {
-                Loop::stop();
-            });
-        }
-
-        return $promise;
+        return Promise\any($promises);
     }
 
     /**
@@ -188,7 +226,7 @@ final class Cluster
 
             try {
                 /** @noinspection PhpDeprecationInspection */
-                $signalHandler = self::callableFromStaticMethod('terminate');
+                $signalHandler = self::callableFromStaticMethod('stop');
                 self::$signalWatchers[] = Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler);
                 self::$signalWatchers[] = Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler);
 
