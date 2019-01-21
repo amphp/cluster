@@ -29,11 +29,15 @@ final class IpcClient
     /** @var \SplQueue */
     private $pendingResponses;
 
-    public function __construct(Channel $channel, ClientSocket $socket, callable $onData)
+    public function __construct(callable $onData, Channel $channel, ClientSocket $socket = null)
     {
         $this->channel = $channel;
         $this->onData = $onData;
         $this->pendingResponses = $pendingResponses = new \SplQueue;
+
+        if ($socket === null) {
+            return;
+        }
 
         $this->importWatcher = Loop::onReadable($socket->getResource(), static function ($watcher, $socket) use ($pendingResponses) {
             if ($pendingResponses->isEmpty()) {

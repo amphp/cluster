@@ -10,8 +10,6 @@ use Amp\MultiReasonException;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\Process;
 use Amp\Promise;
-use Amp\Socket;
-use Amp\Socket\Server;
 use Monolog\Logger;
 use function Amp\asyncCall;
 use function Amp\call;
@@ -21,6 +19,8 @@ final class Watcher
     use CallableMaker;
 
     const WORKER_TIMEOUT = 5000;
+    const KEY_LENGTH = 32;
+    const EMPTY_URI = '~';
 
     /** @var resource[] */
     private $sockets = [];
@@ -34,8 +34,8 @@ final class Watcher
     /** @var Logger */
     private $logger;
 
-    /** @var Server */
-    private $server;
+    /** @var Internal\WorkerHub */
+    private $hub;
 
     /** @var callable */
     private $bind;
@@ -52,9 +52,6 @@ final class Watcher
     /** @var Deferred|null */
     private $deferred;
 
-    /** @var Promise|null */
-    private $startPromise;
-
     /**
      * @param string|string[]  $script Script path and optional arguments.
      * @param Logger $logger
@@ -65,28 +62,20 @@ final class Watcher
             throw new \Error("A new cluster cannot be created from within a cluster worker");
         }
 
-        if (!canReusePort() && !\extension_loaded("sockets")) {
+        $canReusePort = canReusePort();
+
+        if (!$canReusePort && !\extension_loaded("sockets")) {
             throw new \Error("The sockets extension is required to create clusters on this system");
         }
 
         $this->logger = $logger;
 
-        $isWindows = \strncasecmp(\PHP_OS, "WIN", 3) === 0;
-
-        if ($isWindows) {
-            $uri = "tcp://127.0.0.1:0";
-        } else {
-            $uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
-        }
-
-        $this->server = Socket\listen($uri);
-
-        if ($isWindows) {
-            $uri = "tcp://" . $this->server->getAddress(); // Get address to determine port.
+        if (!$canReusePort) {
+            $this->hub = new Internal\WorkerHub;
         }
 
         $this->script = \array_merge(
-            [__DIR__ . '/Internal/cluster-runner.php', $uri],
+            [__DIR__ . '/Internal/cluster-runner.php', $this->hub ? $this->hub->getUri() : self::EMPTY_URI],
             \is_array($script) ? \array_values(\array_map("\\strval", $script)) : [(string) $script]
         );
 
@@ -110,7 +99,7 @@ final class Watcher
      * @param string   $event
      * @param callable $callback
      */
-    public function onMessage(string $event, callable $callback)
+    public function onMessage(string $event, callable $callback): void
     {
         $this->onMessage[$event][] = $callback;
     }
@@ -149,29 +138,29 @@ final class Watcher
 
     private function startWorker(): Promise
     {
-        return $this->startPromise = call(function () {
-            if ($this->startPromise) {
-                yield $this->startPromise; // Wait for previous worker to start, required for IPC socket identification.
-            }
-
-            if (!$this->running) {
-                return; // Cluster stopped while waiting, abort starting worker.
-            }
-
+        return call(function () {
             $process = new Process($this->script);
-            yield $process->start();
+            $pid = yield $process->start();
 
-            try {
-                $socket = yield Promise\timeout($this->server->accept(), self::WORKER_TIMEOUT);
-            } catch (\Throwable $exception) {
-                if ($process->isRunning()) {
-                    $process->kill();
+            if ($this->hub !== null) {
+                $key = $this->hub->generateKey($pid, self::KEY_LENGTH);
+
+                yield $process->send($key);
+
+                try {
+                    $socket = yield $this->hub->accept($pid);
+                } catch (\Throwable $exception) {
+                    if ($process->isRunning()) {
+                        $process->kill();
+                    }
+
+                    throw new ClusterException("Starting the cluster worker failed", 0, $exception);
                 }
-
-                throw new ClusterException("Starting the cluster worker failed", 0, $exception);
             }
 
-            $worker = new Internal\IpcParent($process, $socket, $this->logger, $this->bind, $this->notify);
+            $this->logger->info(\sprintf('Started worker with PID %d', $pid));
+
+            $worker = new Internal\IpcParent($process, $this->logger, $this->bind, $this->notify, $socket ?? null);
 
             $stdout = call(function () use ($process) {
                 $stream = $process->getStdout();
@@ -315,8 +304,6 @@ final class Watcher
 
             list($exceptions) = yield Promise\any($promises);
 
-            $this->server->close();
-
             $this->workers = new \SplObjectStorage;
 
             if (!empty($exceptions)) {
@@ -355,7 +342,7 @@ final class Watcher
      *
      * @return resource Stream socket server resource.
      */
-    private function bindSocket(string $uri)
+    private function bindSocket(string $uri) /* : resource */
     {
         if (isset($this->sockets[$uri])) {
             return $this->sockets[$uri];

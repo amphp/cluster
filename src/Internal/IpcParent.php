@@ -14,7 +14,7 @@ final class IpcParent
 {
     const PING_TIMEOUT = 10000;
 
-    /** @var Socket */
+    /** @var Socket|null */
     private $socket;
 
     /** @var callable */
@@ -35,7 +35,7 @@ final class IpcParent
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Context $context, Socket $socket, Logger $logger, callable $bind, callable $onData)
+    public function __construct(Context $context, Logger $logger, callable $bind, callable $onData, Socket $socket = null)
     {
         \assert($context->isRunning(), "The context must already be running");
 
@@ -73,8 +73,10 @@ final class IpcParent
             } finally {
                 Loop::cancel($this->watcher);
 
-                $this->socket->close();
-                $this->socket = null;
+                if ($this->socket !== null) {
+                    $this->socket->close();
+                    $this->socket = null;
+                }
             }
         });
     }

@@ -37,15 +37,15 @@ final class Cluster
     /**
      * @noinspection PhpUnusedPrivateMethodInspection
      *
-     * @param Channel             $channel
-     * @param Socket\ClientSocket $socket
+     * @param Channel                  $channel
+     * @param Socket\ClientSocket|null $socket
      *
      * @return Promise Resolved when the IPC client has terminated.
      */
-    private static function run(Channel $channel, Socket\ClientSocket $socket): Promise
+    private static function run(Channel $channel, Socket\ClientSocket $socket = null): Promise
     {
         /** @noinspection PhpDeprecationInspection */
-        self::$client = new IpcClient($channel, $socket, self::callableFromStaticMethod("onReceivedMessage"));
+        self::$client = new IpcClient(self::callableFromStaticMethod("onReceivedMessage"), $channel, $socket);
 
         return call(static function () {
             try {
