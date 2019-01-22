@@ -158,7 +158,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments) {
     $formatter->allowInlineLineBreaks(true);
     $logHandler->setFormatter($formatter);
 
-    $logger = new Logger("cluster");
+    $logger = new Logger("cluster-" . \getmypid());
     $logger->pushHandler($logHandler);
 
     $workers = $arguments->get("workers");
