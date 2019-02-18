@@ -7,9 +7,13 @@ namespace Amp\Cluster;
 use Amp\CallableMaker;
 use Amp\Deferred;
 use Amp\MultiReasonException;
+use Amp\Parallel\Context\Context;
 use Amp\Parallel\Context\ContextException;
+use Amp\Parallel\Context\Parallel;
 use Amp\Parallel\Context\Process;
+use Amp\Parallel\Sync\ChannelException;
 use Amp\Promise;
+use Amp\Success;
 use Monolog\Logger;
 use function Amp\asyncCall;
 use function Amp\call;
@@ -33,6 +37,9 @@ final class Watcher
 
     /** @var Logger */
     private $logger;
+
+    /** @var int */
+    private $nextId = 1;
 
     /** @var Internal\WorkerHub */
     private $hub;
@@ -139,62 +146,78 @@ final class Watcher
     private function startWorker(): Promise
     {
         return call(function () {
-            $process = new Process($this->script);
-            $pid = yield $process->start();
+            if (Parallel::isSupported()) {
+                $context = new Parallel($this->script);
+            } else {
+                $context = new Process($this->script);
+            }
+
+            yield $context->start();
+
+            $id = $this->nextId++;
 
             if ($this->hub !== null) {
-                $key = $this->hub->generateKey($pid, self::KEY_LENGTH);
+                $key = $this->hub->generateKey($id, self::KEY_LENGTH);
 
-                yield $process->send($key);
+                yield $context->send($key);
 
                 try {
-                    $socket = yield $this->hub->accept($pid);
+                    $socket = yield $this->hub->accept($id);
                 } catch (\Throwable $exception) {
-                    if ($process->isRunning()) {
-                        $process->kill();
+                    if ($context->isRunning()) {
+                        $context->kill();
                     }
 
                     throw new ClusterException("Starting the cluster worker failed", 0, $exception);
                 }
             }
 
-            $this->logger->info(\sprintf('Started worker with PID %d', $pid));
+            $this->logger->info(\sprintf('Started worker with ID %d', $id));
 
-            $worker = new Internal\IpcParent($process, $this->logger, $this->bind, $this->notify, $socket ?? null);
+            $worker = new Internal\IpcParent($context, $this->logger, $this->bind, $this->notify, $socket ?? null);
 
-            $stdout = call(function () use ($process) {
-                $stream = $process->getStdout();
-                $stream->unreference();
-                while (null !== $chunk = yield $stream->read()) {
-                    $this->logger->info(\sprintf('STDOUT from PID %d: %s', $process->getPid(), $chunk));
-                }
-            });
+            if ($context instanceof Process) {
+                $stdout = call(function () use ($context) {
+                    $stream = $context->getStdout();
+                    $stream->unreference();
+                    while (null !== $chunk = yield $stream->read()) {
+                        $this->logger->info(\sprintf('STDOUT from PID %d: %s', $context->getPid(), $chunk));
+                    }
+                });
 
-            $stderr = call(function () use ($process) {
-                $stream = $process->getStderr();
-                $stream->unreference();
-                while (null !== $chunk = yield $stream->read()) {
-                    $this->logger->error(\sprintf('STDERR from PID %d: %s', $process->getPid(), $chunk));
-                }
-            });
+                $stderr = call(function () use ($context) {
+                    $stream = $context->getStderr();
+                    $stream->unreference();
+                    while (null !== $chunk = yield $stream->read()) {
+                        $this->logger->error(\sprintf('STDERR from PID %d: %s', $context->getPid(), $chunk));
+                    }
+                });
+
+                $promise = Promise\all([$stdout, $stderr]);
+            } else {
+                $promise = new Success;
+            }
 
             $runner = $worker->run();
 
-            $promise = call(function () use ($worker, $process, $runner, $stdout, $stderr) {
+            $promise = call(function () use ($worker, $context, $id, $runner, $promise) {
                 try {
                     try {
                         yield $runner; // Wait for worker to exit.
-                        $this->logger->info("Worker {$process->getPid()} terminated cleanly" .
+                        $this->logger->info("Worker {$id} terminated cleanly" .
+                            ($this->running ? ", restarting..." : "."));
+                    } catch (ChannelException $exception) {
+                        $this->logger->error("Worker {$id} died unexpectedly" .
                             ($this->running ? ", restarting..." : "."));
                     } catch (ContextException $exception) {
-                        $this->logger->error("Worker {$process->getPid()} died unexpectedly" .
+                        $this->logger->error("Worker {$id} died unexpectedly" .
                             ($this->running ? ", restarting..." : "."));
                     } catch (\Throwable $exception) {
-                        $this->logger->error("Worker {$process->getPid()} failed: " . (string) $exception);
+                        $this->logger->error("Worker {$id} failed: " . (string) $exception);
                         throw $exception;
                     } finally {
-                        if ($process->isRunning()) {
-                            $process->kill();
+                        if ($context->isRunning()) {
+                            $context->kill();
                         }
 
                         $this->workers->detach($worker);
@@ -205,7 +228,7 @@ final class Watcher
                     }
 
                     // Wait for the STDIO streams to be consumed and closed.
-                    yield Promise\all([$stdout, $stderr]);
+                    yield $promise;
                 } catch (\Throwable $exception) {
                     $this->stop();
                     throw $exception;
@@ -218,7 +241,7 @@ final class Watcher
                 return;
             }
 
-            $this->workers->attach($worker, [$process, $promise]);
+            $this->workers->attach($worker, [$context, $promise]);
         });
     }
 
@@ -246,16 +269,16 @@ final class Watcher
             $promises = [];
             foreach (clone $this->workers as $worker) {
                 \assert($worker instanceof Internal\IpcParent);
-                list($process, $promise) = $this->workers[$worker];
-                \assert($process instanceof Process);
+                list($context, $promise) = $this->workers[$worker];
+                \assert($context instanceof Context);
 
-                $promises[] = call(function () use ($worker, $process, $promise) {
+                $promises[] = call(function () use ($worker, $context, $promise) {
                     try {
                         yield $worker->shutdown();
                         yield Promise\timeout($promise, self::WORKER_TIMEOUT);
                     } finally {
-                        if ($process->isRunning()) {
-                            $process->kill();
+                        if ($context->isRunning()) {
+                            $context->kill();
                         }
                     }
                 });
@@ -286,8 +309,8 @@ final class Watcher
             foreach (clone $this->workers as $worker) {
                 \assert($worker instanceof Internal\IpcParent);
                 $promises[] = call(function () use ($worker) {
-                    list($process, $promise) = $this->workers[$worker];
-                    \assert($process instanceof Process);
+                    list($context, $promise) = $this->workers[$worker];
+                    \assert($context instanceof Context);
 
                     try {
                         yield $worker->shutdown();
@@ -295,11 +318,15 @@ final class Watcher
                     } catch (ContextException $exception) {
                         // Ignore if the worker has already died unexpectedly.
                     } finally {
-                        if ($process->isRunning()) {
-                            $process->kill();
+                        if ($context->isRunning()) {
+                            $context->kill();
                         }
                     }
                 });
+            }
+
+            foreach ($this->sockets as $socket) {
+                \fclose($socket);
             }
 
             list($exceptions) = yield Promise\any($promises);

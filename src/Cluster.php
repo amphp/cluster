@@ -137,6 +137,14 @@ final class Cluster
     }
 
     /**
+     * @return int Returns the process ID or thread ID of the execution context.
+     */
+    public static function getId(): int
+    {
+        return \defined("AMP_CONTEXT_ID") ? \AMP_CONTEXT_ID : \getmypid();
+    }
+
+    /**
      * @param string                          $uri
      * @param Socket\ServerListenContext|null $listenContext
      * @param Socket\ServerTlsContext|null    $tlsContext
@@ -255,7 +263,8 @@ final class Cluster
     {
         if (!self::isWorker()) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
-                "Create your own log handler when not running as part of a cluster");
+                "Create your own log handler when not running as part of a cluster." .
+                "Use " . __CLASS__ . "::isWorker() to determine if the process is running as a worker");
         }
 
         return new Internal\IpcLogHandler(self::$client, $logLevel, $bubble);

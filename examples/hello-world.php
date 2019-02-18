@@ -17,7 +17,7 @@ Loop::run(function () {
     /** @var \Amp\Socket\Server $server */
     $server = yield Cluster::listen("127.0.0.1:1337");
 
-    $pid = \getmypid();
+    $id = Cluster::getId();
 
     // Creating a log handler in this way allows the script to be run in a cluster or standalone.
     if (Cluster::isWorker()) {
@@ -27,10 +27,10 @@ Loop::run(function () {
         $handler->setFormatter(new ConsoleFormatter);
     }
 
-    $logger = new Logger('worker-' . $pid);
+    $logger = new Logger('worker-' . $id);
     $logger->pushHandler($handler);
 
-    $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $pid));
+    $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $id));
 
     Cluster::onTerminate(function () use ($server, $logger) {
         $logger->info("Received termination request");
@@ -41,7 +41,7 @@ Loop::run(function () {
 
     /** @var \Amp\Socket\ClientSocket $client */
     while ($client = yield $server->accept()) {
-        $logger->info(\sprintf("Accepted client on %s in PID %d", $server->getAddress(), $pid));
-        $client->end(\sprintf("Hello from PID %d!\n", $pid));
+        $logger->info(\sprintf("Accepted client on %s in PID %d", $server->getAddress(), $id));
+        $client->end(\sprintf("Hello from worker ID %d!\n", $id));
     }
 });

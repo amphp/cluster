@@ -35,7 +35,7 @@
         "amphp/byte-stream": "^1.5",
         "amphp/file": "^0.3",
         "amphp/log": "^1",
-        "amphp/parallel": "^1",
+        "amphp/parallel": "dev-ext-parallel as 1.2",
         "amphp/socket": "^0.10.8",
         "league/climate": "^3",
         "monolog/monolog": "^1.23",

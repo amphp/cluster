@@ -14,7 +14,7 @@ use Monolog\Logger;
 // until the main process is terminated.
 
 Loop::run(function () {
-    $pid = \getmypid();
+    $id = Cluster::getId();
 
     // Creating a log handler in this way allows the script to be run in a cluster or standalone.
     if (Cluster::isWorker()) {
@@ -24,7 +24,7 @@ Loop::run(function () {
         $handler->setFormatter(new ConsoleFormatter);
     }
 
-    $logger = new Logger('worker-' . $pid);
+    $logger = new Logger('worker-' . $id);
     $logger->pushHandler($handler);
 
     $timeout = \random_int(1, 5);
@@ -34,7 +34,7 @@ Loop::run(function () {
         exit(1);
     });
 
-    $logger->info(\sprintf("Process %d started, failing in %d seconds", $pid, $timeout));
+    $logger->info(\sprintf("Worker %d started, failing in %d seconds", $id, $timeout));
 
     Cluster::onTerminate(function () use ($logger, $watcher) {
         $logger->info("Received termination request");

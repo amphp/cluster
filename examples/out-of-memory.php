@@ -14,7 +14,7 @@ use Monolog\Logger;
 // exceeding the configured limit. The cluster watcher will automatically restart the process.
 
 Loop::run(function () {
-    $pid = \getmypid();
+    $id = Cluster::getId();
 
     // Creating a log handler in this way allows the script to be run in a cluster or standalone.
     if (Cluster::isWorker()) {
@@ -24,20 +24,20 @@ Loop::run(function () {
         $handler->setFormatter(new ConsoleFormatter);
     }
 
-    $logger = new Logger('worker-' . $pid);
+    $logger = new Logger('worker-' . $id);
     $logger->pushHandler($handler);
 
     $buffer = "";
     $character = "🍺";
 
-    $watcher = Loop::repeat(100, function () use (&$buffer, $character, $logger, $pid) {
+    $watcher = Loop::repeat(100, function () use (&$buffer, $character, $logger, $id) {
         $allocationSize = \random_int(2 ** 16, 2 ** 20);
-        $logger->info(\sprintf("Allocating %s %d times in PID %d", $character, $allocationSize, $pid));
+        $logger->info(\sprintf("Allocating %s %d times in worker ID %d", $character, $allocationSize, $id));
         $buffer .= \str_repeat($character, $allocationSize);
-        $logger->info(\sprintf("PID %d is now using %d bytes of memory", $pid, \memory_get_usage(true)));
+        $logger->info(\sprintf("Worker ID %d is now using %d bytes of memory", $id, \memory_get_usage(true)));
     });
 
-    $logger->info(\sprintf("Process %d started.", $pid));
+    $logger->info(\sprintf("Worker %d started.", $id));
 
     Cluster::onTerminate(function () use ($logger, $watcher) {
         $logger->info("Received termination request");
