@@ -7,7 +7,7 @@ use Amp\Deferred;
 use Amp\Loop;
 use Amp\Parallel\Context\ContextException;
 use Amp\Promise;
-use Amp\Socket\ServerSocket;
+use Amp\Socket\ResourceSocket;
 use Amp\TimeoutException;
 use function Amp\call;
 
@@ -31,6 +31,9 @@ final class WorkerHub
     /** @var Deferred[] */
     private $acceptor = [];
 
+    /** @var string|null */
+    private $toUnlink;
+
     public function __construct()
     {
         $isWindows = \strncasecmp(\PHP_OS, "WIN", 3) === 0;
@@ -38,7 +41,10 @@ final class WorkerHub
         if ($isWindows) {
             $this->uri = "tcp://127.0.0.1:0";
         } else {
-            $this->uri = "unix://" . \tempnam(\sys_get_temp_dir(), "amp-cluster-ipc-") . ".sock";
+            $suffix = \bin2hex(\random_bytes(10));
+            $path = \sys_get_temp_dir() . "/amp-cluster-ipc-" . $suffix . ".sock";
+            $this->uri = "unix://" . $path;
+            $this->toUnlink = $path;
         }
 
         $this->server = \stream_socket_server($this->uri, $errno, $errstr, \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN);
@@ -55,16 +61,16 @@ final class WorkerHub
 
         $keys = &$this->keys;
         $acceptor = &$this->acceptor;
-        $this->watcher = Loop::onReadable($this->server, static function (string $watcher, $server) use (&$keys, &$acceptor) {
+        $this->watcher = Loop::onReadable($this->server, static function (string $watcher, $server) use (&$keys, &$acceptor): \Generator {
             // Error reporting suppressed since stream_socket_accept() emits E_WARNING on client accept failure.
             if (!$client = @\stream_socket_accept($server, 0)) {  // Timeout of 0 to be non-blocking.
                 return; // Accepting client failed.
             }
 
-            $client = new ServerSocket($client);
+            $client = ResourceSocket::fromServerSocket($client);
 
             try {
-                $received = yield Promise\timeout(call(function () use ($client) {
+                $received = yield Promise\timeout(call(function () use ($client): \Generator {
                     $key = "";
                     do {
                         if ((null === $chunk = yield $client->read())) {
@@ -98,6 +104,9 @@ final class WorkerHub
     {
         Loop::cancel($this->watcher);
         \fclose($this->server);
+        if ($this->toUnlink !== null) {
+            @\unlink($this->toUnlink);
+        }
     }
 
     public function getUri(): string
@@ -114,7 +123,7 @@ final class WorkerHub
 
     public function accept(int $pid): Promise
     {
-        return call(function () use ($pid) {
+        return call(function () use ($pid): \Generator {
             $this->acceptor[$pid] = new Deferred;
 
             Loop::enable($this->watcher);

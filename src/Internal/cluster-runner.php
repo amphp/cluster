@@ -7,6 +7,7 @@ use Amp\Cluster\Watcher;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
 use Amp\Socket;
+use Amp\Socket\ResourceSocket;
 use Amp\TimeoutCancellationToken;
 
 return function (Channel $channel) use ($argc, $argv) {
@@ -30,10 +31,11 @@ return function (Channel $channel) use ($argc, $argv) {
 
         try {
             $transferSocket = yield Socket\connect($uri, null, new TimeoutCancellationToken(Watcher::WORKER_TIMEOUT));
-            \assert($transferSocket instanceof Socket\ClientSocket);
         } catch (\Throwable $exception) {
             throw new \RuntimeException("Could not connect to IPC socket", 0, $exception);
         }
+
+        \assert($transferSocket instanceof ResourceSocket);
 
         yield $transferSocket->write($key);
     }
@@ -51,7 +53,7 @@ return function (Channel $channel) use ($argc, $argv) {
     }
 
     // Protect current scope by requiring script within another function.
-    (function () use ($argc, $argv) { // Using $argc so it is available to the required script.
+    (function () use ($argc, $argv): void { // Using $argc so it is available to the required script.
         require $argv[0];
     })();
 

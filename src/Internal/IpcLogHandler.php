@@ -17,7 +17,7 @@ final class IpcLogHandler extends AbstractProcessingHandler
     }
 
     /** @inheritdoc */
-    protected function write(array $record)
+    protected function write(array $record): void
     {
         $this->client->log($record);
     }

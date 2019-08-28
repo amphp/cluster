@@ -43,7 +43,7 @@ EOT;
 
 \error_reporting(E_ALL);
 
-(function () {
+(function (): void {
     $paths = [
         \dirname(__DIR__, 3) . "/autoload.php",
         \dirname(__DIR__) . "/vendor/autoload.php",
@@ -109,7 +109,7 @@ foreach ($args as $arg) {
 $arguments = new League\CLImate\Argument\Manager;
 $arguments->add($args);
 
-Loop::run(function () use ($argc, $argv, $flags, $arguments) {
+Loop::run(function () use ($argc, $argv, $flags, $arguments): \Generator {
     try {
         $workerArguments = [];
 
@@ -176,20 +176,20 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments) {
     $watcher = new Watcher($workerArguments, $logger);
 
     try {
-        $signalHandler = function (string $watcherId, int $signalNumber, string $signal) use ($watcher, $logger) {
+        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use ($watcher, $logger): void {
             Loop::cancel($watcherId);
 
-            $logger->info('Stopping cluster due to received signal: ' . $signal);
+            $logger->info(\sprintf('Stopping cluster due to received signal: %s (%d)', $signalName, $signalNumber));
             $watcher->stop();
         };
 
         Loop::unreference(Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler, 'SIGINT'));
         Loop::unreference(Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler, 'SIGTERM'));
 
-        $signalHandler = function (string $watcherId, int $signalNumber, string $signal) use ($watcher, $logger) {
+        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use ($watcher, $logger): \Generator {
             Loop::disable($watcherId);
 
-            $logger->info('Restarting cluster due to received signal: ' . $signal);
+            $logger->info(\sprintf('Restarting cluster due to received signal: %s (%d)', $signalName, $signalNumber));
             yield $watcher->restart();
 
             Loop::enable($watcherId);

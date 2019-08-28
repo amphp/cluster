@@ -32,14 +32,14 @@ Loop::run(function () {
 
     $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $id));
 
-    Cluster::onTerminate(function () use ($server, $logger) {
+    Cluster::onTerminate(function () use ($server, $logger): \Generator {
         $logger->info("Received termination request");
         yield new Delayed(1000);
 
         $server->close();
     });
 
-    /** @var \Amp\Socket\ClientSocket $client */
+    /** @var \Amp\Socket\Socket $client */
     while ($client = yield $server->accept()) {
         $logger->info(\sprintf("Accepted client on %s in PID %d", $server->getAddress(), $id));
         $client->end(\sprintf("Hello from worker ID %d!\n", $id));

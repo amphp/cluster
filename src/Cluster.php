@@ -1,11 +1,7 @@
 <?php
 
-/** @noinspection PhpUndefinedClassInspection CallableMaker */
-
 namespace Amp\Cluster;
 
-use Amp\CallableMaker;
-use Amp\Cluster\Internal\IpcClient;
 use Amp\Loop;
 use Amp\MultiReasonException;
 use Amp\Parallel\Sync\Channel;
@@ -20,9 +16,7 @@ use function Amp\call;
 
 final class Cluster
 {
-    use CallableMaker;
-
-    /** @var IpcClient */
+    /** @var Internal\IpcClient */
     private static $client;
 
     /** @var callable[]|null */
@@ -35,19 +29,18 @@ final class Cluster
     private static $signalWatchers;
 
     /**
-     * @noinspection PhpUnusedPrivateMethodInspection
+     * @noinspection PhpUnusedPrivateMethodInspection Used by rebinding a Closure to this class.
      *
-     * @param Channel                  $channel
-     * @param Socket\ClientSocket|null $socket
+     * @param Channel                    $channel
+     * @param Socket\ResourceSocket|null $socket
      *
      * @return Promise Resolved when the IPC client has terminated.
      */
-    private static function run(Channel $channel, Socket\ClientSocket $socket = null): Promise
+    private static function run(Channel $channel, Socket\ResourceSocket $socket = null): Promise
     {
-        /** @noinspection PhpDeprecationInspection */
-        self::$client = new IpcClient(self::callableFromStaticMethod("onReceivedMessage"), $channel, $socket);
+        self::$client = new Internal\IpcClient(\Closure::fromCallable([self::class, 'onReceivedMessage']), $channel, $socket);
 
-        return call(static function () {
+        return call(static function (): \Generator {
             try {
                 yield self::$client->run();
             } catch (\Throwable $exception) {
@@ -87,7 +80,7 @@ final class Cluster
      */
     private static function stop(): Promise
     {
-        return call(function () {
+        return call(function (): \Generator {
             list($exceptions) = yield self::terminate();
 
             if (!empty($exceptions)) {
@@ -145,23 +138,19 @@ final class Cluster
     }
 
     /**
-     * @param string                          $uri
-     * @param Socket\ServerListenContext|null $listenContext
-     * @param Socket\ServerTlsContext|null    $tlsContext
+     * @param string                  $uri
+     * @param Socket\BindContext|null $listenContext
      *
      * @return Promise
      */
-    public static function listen(
-        string $uri,
-        Socket\ServerListenContext $listenContext = null,
-        Socket\ServerTlsContext $tlsContext = null
-    ): Promise {
-        return call(function () use ($uri, $listenContext, $tlsContext) {
+    public static function listen(string $uri, ?Socket\BindContext $listenContext = null): Promise
+    {
+        return call(function () use ($uri, $listenContext): \Generator {
             if (!self::isWorker()) {
-                return Socket\listen($uri, $listenContext, $tlsContext);
+                return Server::listen($uri, $listenContext);
             }
 
-            $listenContext = $listenContext ?? new Socket\ServerListenContext;
+            $listenContext = $listenContext ?? new Socket\BindContext;
 
             if (canReusePort()) {
                 $position = \strrpos($uri, ":");
@@ -172,11 +161,11 @@ final class Cluster
                 }
 
                 $listenContext = $listenContext->withReusePort();
-                return Socket\listen($uri, $listenContext, $tlsContext);
+                return Server::listen($uri, $listenContext);
             }
 
             $socket = yield self::$client->importSocket($uri);
-            return self::listenOnBoundSocket($socket, $listenContext, $tlsContext);
+            return self::listenOnBoundSocket($socket, $listenContext);
         });
     }
 
@@ -185,9 +174,9 @@ final class Cluster
      * Internal callback triggered when a message is received from the parent.
      *
      * @param string $event
-     * @param mixed $data
+     * @param mixed  $data
      */
-    private static function onReceivedMessage(string $event, $data)
+    private static function onReceivedMessage(string $event, $data): void
     {
         foreach (self::$onMessage[$event] ?? [] as $callback) {
             asyncCall($callback, $data);
@@ -197,17 +186,17 @@ final class Cluster
     /**
      * Attaches a callback to be invoked when a message is received from the parent process.
      *
-     * @param string $event
+     * @param string   $event
      * @param callable $callback
      */
-    public static function onMessage(string $event, callable $callback)
+    public static function onMessage(string $event, callable $callback): void
     {
         self::$onMessage[$event][] = $callback;
     }
 
     /**
      * @param string $event Event name.
-     * @param mixed  $data Send data to the parent.
+     * @param mixed  $data  Send data to the parent.
      *
      * @return Promise
      */
@@ -223,7 +212,7 @@ final class Cluster
     /**
      * @param callable $callable Callable to invoke to shutdown the process.
      */
-    public static function onTerminate(callable $callable)
+    public static function onTerminate(callable $callable): void
     {
         if (self::$onClose === null) {
             return;
@@ -233,8 +222,7 @@ final class Cluster
             self::$signalWatchers = [];
 
             try {
-                /** @noinspection PhpDeprecationInspection */
-                $signalHandler = self::callableFromStaticMethod('stop');
+                $signalHandler = \Closure::fromCallable([self::class, 'stop']);
                 self::$signalWatchers[] = Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler);
                 self::$signalWatchers[] = Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler);
 
@@ -271,25 +259,14 @@ final class Cluster
     }
 
     /**
-     * @param resource                        $socket Socket resource (not a stream socket resource).
-     * @param Socket\ServerListenContext|null $listenContext
-     * @param Socket\ServerTlsContext|null    $tlsContext
+     * @param resource                $socket Socket resource (not a stream socket resource).
+     * @param Socket\BindContext|null $listenContext
      *
      * @return Server
      */
-    private static function listenOnBoundSocket(
-        $socket,
-        Socket\ServerListenContext $listenContext,
-        Socket\ServerTlsContext $tlsContext = null
-    ): Server {
-        if ($tlsContext) {
-            $context = \array_merge(
-                $listenContext->toStreamContextArray(),
-                $tlsContext->toStreamContextArray()
-            );
-        } else {
-            $context = $listenContext->toStreamContextArray();
-        }
+    private static function listenOnBoundSocket($socket, ?Socket\BindContext $listenContext): Server
+    {
+        $context = $listenContext->toStreamContextArray();
 
         \socket_listen($socket, $context["socket"]["backlog"] ?? 0);
 

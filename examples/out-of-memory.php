@@ -30,7 +30,7 @@ Loop::run(function () {
     $buffer = "";
     $character = "🍺";
 
-    $watcher = Loop::repeat(100, function () use (&$buffer, $character, $logger, $id) {
+    $watcher = Loop::repeat(100, function () use (&$buffer, $character, $logger, $id): void {
         $allocationSize = \random_int(2 ** 16, 2 ** 20);
         $logger->info(\sprintf("Allocating %s %d times in worker ID %d", $character, $allocationSize, $id));
         $buffer .= \str_repeat($character, $allocationSize);
@@ -39,7 +39,7 @@ Loop::run(function () {
 
     $logger->info(\sprintf("Worker %d started.", $id));
 
-    Cluster::onTerminate(function () use ($logger, $watcher) {
+    Cluster::onTerminate(function () use ($logger, $watcher): void {
         $logger->info("Received termination request");
         Loop::cancel($watcher);
     });

@@ -6,7 +6,7 @@ use Amp\Deferred;
 use Amp\Loop;
 use Amp\Parallel\Sync\Channel;
 use Amp\Promise;
-use Amp\Socket\ClientSocket;
+use Amp\Socket\ResourceSocket;
 use function Amp\call;
 
 final class IpcClient
@@ -29,7 +29,7 @@ final class IpcClient
     /** @var \SplQueue */
     private $pendingResponses;
 
-    public function __construct(callable $onData, Channel $channel, ClientSocket $socket = null)
+    public function __construct(callable $onData, Channel $channel, ResourceSocket $socket = null)
     {
         $this->channel = $channel;
         $this->onData = $onData;
@@ -39,7 +39,7 @@ final class IpcClient
             return;
         }
 
-        $this->importWatcher = Loop::onReadable($socket->getResource(), static function ($watcher, $socket) use ($pendingResponses) {
+        $this->importWatcher = Loop::onReadable($socket->getResource(), static function (string $watcher, $socket) use ($pendingResponses): void {
             if ($pendingResponses->isEmpty()) {
                 throw new \RuntimeException("Unexpected import-socket message.");
             }
@@ -76,7 +76,7 @@ final class IpcClient
 
     public function run(): Promise
     {
-        return call(function () {
+        return call(function (): \Generator {
             while (null !== $message = yield $this->channel->receive()) {
                 yield from $this->handleMessage($message);
             }
@@ -128,7 +128,7 @@ final class IpcClient
 
     public function importSocket(string $uri): Promise
     {
-        return call(function () use ($uri) {
+        return call(function () use ($uri): \Generator {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
 
@@ -140,7 +140,7 @@ final class IpcClient
 
     public function selectPort(string $uri): Promise
     {
-        return call(function () use ($uri) {
+        return call(function () use ($uri): \Generator {
             $deferred = new Deferred;
             $this->pendingResponses->push($deferred);
 

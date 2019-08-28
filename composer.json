@@ -30,23 +30,25 @@
         }
     ],
     "require": {
-        "php": ">=7.0.7",
+        "php": ">=7.1",
         "amphp/amp": "^2",
         "amphp/byte-stream": "^1.5",
         "amphp/file": "^0.3",
         "amphp/log": "^1",
-        "amphp/parallel": "dev-ext-parallel as 1.2",
-        "amphp/socket": "^0.10.8",
+        "amphp/parallel": "^1.2",
+        "amphp/socket": "^1",
         "league/climate": "^3",
         "monolog/monolog": "^1.23",
         "psr/log": "^1"
     },
     "require-dev": {
+        "amphp/http-server": "^2",
         "amphp/phpunit-util": "^1",
         "amphp/php-cs-fixer-config": "dev-master",
         "phpunit/phpunit": "^6",
         "infection/infection": "^0.7.1"
     },
+    "minimum-stability": "RC",
     "autoload": {
         "psr-4": {
             "Amp\\Cluster\\": "src"
@@ -63,12 +65,9 @@
     "suggest": {
         "ext-sockets": "Required for socket transfer on systems that do not support SO_REUSEPORT"
     },
-    "bin": ["bin/cluster"],
-    "config": {
-        "platform": {
-            "php": "7.0.13"
-        }
-    },
+    "bin": [
+        "bin/cluster"
+    ],
     "scripts": {
         "test": "@php -dzend.assertions=1 -dassert.exception=1 ./vendor/bin/phpunit",
         "code-style": "@php ./vendor/bin/php-cs-fixer fix"

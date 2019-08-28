@@ -13,6 +13,7 @@ use Amp\Http\Server\Server;
 use Amp\Http\Status;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
+use Amp\Promise;
 use Monolog\Logger;
 
 // Run using bin/cluster examples/simple-http-server.php
@@ -38,7 +39,7 @@ Amp\Loop::run(function () {
     $logger->pushHandler($handler);
 
     // Set up a simple request handler.
-    $server = new Server($sockets, new CallableRequestHandler(function (Request $request) {
+    $server = new Server($sockets, new CallableRequestHandler(function (Request $request): Response {
         return new Response(Status::OK, [
             "content-type" => "text/plain; charset=utf-8"
         ], "Hello, World!");
@@ -48,7 +49,7 @@ Amp\Loop::run(function () {
     yield $server->start();
 
     // Stop the server when the worker is terminated.
-    Cluster::onTerminate(function () use ($server) {
+    Cluster::onTerminate(function () use ($server): Promise {
         return $server->stop();
     });
 });

@@ -54,7 +54,7 @@ final class IpcParent
 
     public function run(): Promise
     {
-        $this->watcher = Loop::repeat(self::PING_TIMEOUT / 2, function () {
+        $this->watcher = Loop::repeat(self::PING_TIMEOUT / 2, function (): void {
             if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                 $this->shutdown();
             } else {
@@ -62,7 +62,7 @@ final class IpcParent
             }
         });
 
-        return call(function () {
+        return call(function (): \Generator {
             try {
                 while (null !== $message = yield $this->context->receive()) {
                     $this->lastActivity = \time();

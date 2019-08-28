@@ -1,10 +1,7 @@
 <?php
 
-/** @noinspection PhpUndefinedClassInspection CallableMaker */
-
 namespace Amp\Cluster;
 
-use Amp\CallableMaker;
 use Amp\Deferred;
 use Amp\MultiReasonException;
 use Amp\Parallel\Context\Context;
@@ -20,8 +17,6 @@ use function Amp\call;
 
 final class Watcher
 {
-    use CallableMaker;
-
     const WORKER_TIMEOUT = 5000;
     const KEY_LENGTH = 32;
     const EMPTY_URI = '~';
@@ -83,14 +78,13 @@ final class Watcher
 
         $this->script = \array_merge(
             [__DIR__ . '/Internal/cluster-runner.php', $this->hub ? $this->hub->getUri() : self::EMPTY_URI],
-            \is_array($script) ? \array_values(\array_map("\\strval", $script)) : [(string) $script]
+            \is_array($script) ? \array_values(\array_map('strval', $script)) : [(string) $script]
         );
 
         $this->workers = new \SplObjectStorage;
 
-        /** @noinspection PhpDeprecationInspection */
-        $this->bind = $this->callableFromInstanceMethod("bindSocket");
-        $this->notify = $this->callableFromInstanceMethod("onReceivedMessage");
+        $this->bind = \Closure::fromCallable([$this, 'bindSocket']);
+        $this->notify = \Closure::fromCallable([$this, 'onReceivedMessage']);
     }
 
     public function __destruct()
@@ -129,7 +123,7 @@ final class Watcher
         $this->deferred = new Deferred;
         $this->running = true;
 
-        return call(function () use ($count) {
+        return call(function () use ($count): \Generator {
             try {
                 $promises = [];
                 for ($i = 0; $i < $count; ++$i) {
@@ -145,7 +139,7 @@ final class Watcher
 
     private function startWorker(): Promise
     {
-        return call(function () {
+        return call(function (): \Generator {
             if (Parallel::isSupported()) {
                 $context = new Parallel($this->script);
             } else {
@@ -177,7 +171,7 @@ final class Watcher
             $worker = new Internal\IpcParent($context, $this->logger, $this->bind, $this->notify, $socket ?? null);
 
             if ($context instanceof Process) {
-                $stdout = call(function () use ($context) {
+                $stdout = call(function () use ($context): \Generator {
                     $stream = $context->getStdout();
                     $stream->unreference();
                     while (null !== $chunk = yield $stream->read()) {
@@ -185,7 +179,7 @@ final class Watcher
                     }
                 });
 
-                $stderr = call(function () use ($context) {
+                $stderr = call(function () use ($context): \Generator {
                     $stream = $context->getStderr();
                     $stream->unreference();
                     while (null !== $chunk = yield $stream->read()) {
@@ -265,14 +259,14 @@ final class Watcher
      */
     public function restart(): Promise
     {
-        return call(function () {
+        return call(function (): \Generator {
             $promises = [];
             foreach (clone $this->workers as $worker) {
                 \assert($worker instanceof Internal\IpcParent);
                 list($context, $promise) = $this->workers[$worker];
                 \assert($context instanceof Context);
 
-                $promises[] = call(function () use ($worker, $context, $promise) {
+                $promises[] = call(function () use ($worker, $context, $promise): \Generator {
                     try {
                         yield $worker->shutdown();
                         yield Promise\timeout($promise, self::WORKER_TIMEOUT);
@@ -296,7 +290,7 @@ final class Watcher
     /**
      * Stops the cluster.
      */
-    public function stop()
+    public function stop(): void
     {
         if (!$this->running) {
             return;
@@ -304,11 +298,11 @@ final class Watcher
 
         $this->running = false;
 
-        $promise = call(function () {
+        $promise = call(function (): \Generator {
             $promises = [];
             foreach (clone $this->workers as $worker) {
                 \assert($worker instanceof Internal\IpcParent);
-                $promises[] = call(function () use ($worker) {
+                $promises[] = call(function () use ($worker): \Generator {
                     list($context, $promise) = $this->workers[$worker];
                     \assert($context instanceof Context);
 
@@ -402,7 +396,7 @@ final class Watcher
      * @param string $event
      * @param mixed $data
      */
-    private function onReceivedMessage(string $event, $data)
+    private function onReceivedMessage(string $event, $data): void
     {
         foreach ($this->onMessage[$event] ?? [] as $callback) {
             asyncCall($callback, $data);
