@@ -14,41 +14,35 @@
     "license": "MIT",
     "authors": [
         {
-            "name": "Daniel Lowrey",
-            "email": "rdlowrey@php.net"
-        },
-        {
-            "name": "Bob Weinand"
+            "name": "Aaron Piotrowski",
+            "email": "aaron@trowski.com"
         },
         {
             "name": "Niklas Keller",
             "email": "me@kelunik.com"
         },
         {
-            "name": "Aaron Piotrowski",
-            "email": "aaron@trowski.com"
+            "name": "Bob Weinand"
         }
     ],
     "require": {
         "php": ">=7.1",
         "amphp/amp": "^2",
         "amphp/byte-stream": "^1.5",
-        "amphp/file": "^0.3",
-        "amphp/log": "^1",
+        "amphp/log": "^1.1",
         "amphp/parallel": "^1.2",
         "amphp/socket": "^1",
         "league/climate": "^3",
-        "monolog/monolog": "^1.23",
+        "monolog/monolog": "^2 || ^1.23",
         "psr/log": "^1"
     },
     "require-dev": {
-        "amphp/http-server": "^2",
-        "amphp/phpunit-util": "^1",
+        "amphp/file": "^1 || ^0.3",
+        "amphp/phpunit-util": "^1.1",
         "amphp/php-cs-fixer-config": "dev-master",
-        "phpunit/phpunit": "^6",
+        "phpunit/phpunit": "^8 || ^7",
         "infection/infection": "^0.7.1"
     },
-    "minimum-stability": "RC",
     "autoload": {
         "psr-4": {
             "Amp\\Cluster\\": "src"
@@ -63,7 +57,11 @@
         }
     },
     "suggest": {
-        "ext-sockets": "Required for socket transfer on systems that do not support SO_REUSEPORT"
+        "ext-sockets": "Required for socket transfer on systems that do not support SO_REUSEPORT",
+        "amphp/file": "Required for logging to a file"
+    },
+    "conflict": {
+        "amphp/file": "<0.2 || >=2"
     },
     "bin": [
         "bin/cluster"
