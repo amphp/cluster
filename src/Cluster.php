@@ -20,7 +20,7 @@ final class Cluster
     private static $client;
 
     /** @var callable[]|null */
-    private static $onClose = [];
+    private static $onClose;
 
     /** @var callable[][] */
     private static $onMessage = [];
@@ -38,6 +38,8 @@ final class Cluster
      */
     private static function run(Channel $channel, Socket\ResourceSocket $socket = null): Promise
     {
+        self::$onClose = [];
+
         self::$client = new Internal\IpcClient(\Closure::fromCallable([self::class, 'onReceivedMessage']), $channel, $socket);
 
         return call(static function (): \Generator {
@@ -167,9 +169,9 @@ final class Cluster
             $socket = yield self::$client->importSocket($uri);
             return self::listenOnBoundSocket($socket, $listenContext);
         });
+    /* @noinspection PhpUnusedPrivateMethodInspection */
     }
 
-    /* @noinspection PhpUnusedPrivateMethodInspection */
     /**
      * Internal callback triggered when a message is received from the parent.
      *
