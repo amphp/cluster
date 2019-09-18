@@ -40,7 +40,7 @@ final class Cluster
     {
         self::$onClose = [];
 
-        self::$client = new Internal\IpcClient(\Closure::fromCallable([self::class, 'onReceivedMessage']), $channel, $socket);
+        self::$client = new Internal\IpcClient(\Closure::fromCallable([self::class, 'handleMessage']), $channel, $socket);
 
         return call(static function (): \Generator {
             try {
@@ -49,7 +49,7 @@ final class Cluster
                 // Exception rethrown below as part of MultiReasonException.
             }
 
-            list($exceptions) = yield self::terminate();
+            [$exceptions] = yield self::terminate();
 
             if (isset($exception)) {
                 $exceptions[] = $exception;
@@ -63,7 +63,12 @@ final class Cluster
 
             self::$client = null;
 
-            if (!empty($exceptions)) {
+            if ($count = \count($exceptions)) {
+                if ($count === 1) {
+                    $exception = $exceptions[0];
+                    throw new ClusterException("Cluster worker failed: " . $exception->getMessage(), 0, $exception);
+                }
+
                 $exception = new MultiReasonException($exceptions);
                 $message = \implode('; ', \array_map(function (\Throwable $exception): string {
                     return $exception->getMessage();
@@ -83,9 +88,14 @@ final class Cluster
     private static function stop(): Promise
     {
         return call(function (): \Generator {
-            list($exceptions) = yield self::terminate();
+            [$exceptions] = yield self::terminate();
 
-            if (!empty($exceptions)) {
+            if ($count = \count($exceptions)) {
+                if ($count === 1) {
+                    $exception = $exceptions[0];
+                    throw new ClusterException("Cluster worker failed: " . $exception->getMessage(), 0, $exception);
+                }
+
                 $exception = new MultiReasonException($exceptions);
                 $message = \implode('; ', \array_map(function (\Throwable $exception): string {
                     return $exception->getMessage();
@@ -169,7 +179,6 @@ final class Cluster
             $socket = yield self::$client->importSocket($uri);
             return self::listenOnBoundSocket($socket, $listenContext);
         });
-    /* @noinspection PhpUnusedPrivateMethodInspection */
     }
 
     /**
@@ -178,7 +187,7 @@ final class Cluster
      * @param string $event
      * @param mixed  $data
      */
-    private static function onReceivedMessage(string $event, $data): void
+    private static function handleMessage(string $event, $data): void
     {
         foreach (self::$onMessage[$event] ?? [] as $callback) {
             asyncCall($callback, $data);

@@ -263,7 +263,7 @@ final class Watcher
             $promises = [];
             foreach (clone $this->workers as $worker) {
                 \assert($worker instanceof Internal\IpcParent);
-                list($context, $promise) = $this->workers[$worker];
+                [$context, $promise] = $this->workers[$worker];
                 \assert($context instanceof Context);
 
                 $promises[] = call(function () use ($worker, $context, $promise): \Generator {
@@ -303,7 +303,7 @@ final class Watcher
             foreach (clone $this->workers as $worker) {
                 \assert($worker instanceof Internal\IpcParent);
                 $promises[] = call(function () use ($worker): \Generator {
-                    list($context, $promise) = $this->workers[$worker];
+                    [$context, $promise] = $this->workers[$worker];
                     \assert($context instanceof Context);
 
                     try {
@@ -323,11 +323,16 @@ final class Watcher
                 \fclose($socket);
             }
 
-            list($exceptions) = yield Promise\any($promises);
+            [$exceptions] = yield Promise\any($promises);
 
             $this->workers = new \SplObjectStorage;
 
-            if (!empty($exceptions)) {
+            if ($count = \count($exceptions)) {
+                if ($count === 1) {
+                    $exception = $exceptions[0];
+                    throw new ClusterException("Stopping the cluster failed: " . $exception->getMessage(), 0, $exception);
+                }
+
                 $exception = new MultiReasonException($exceptions);
                 $message = \implode('; ', \array_map(function (\Throwable $exception): string {
                     return $exception->getMessage();
