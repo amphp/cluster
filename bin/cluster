@@ -31,6 +31,7 @@ const HELP = <<<EOT
     -w, --workers     Manually specify worker count (default: CPU core count)
     -l, --log         Set the minimum log output level (default: debug)
     -f, --file        Log to file path instead of STDOUT (requires amphp/file)
+                      Asterisks (*) in path will be replaced with cluster PID
     --                Marker to separate cluster and worker arguments
 
     Example Usage:
@@ -153,7 +154,9 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments): \Generator {
             throw new Exception("amphp/file must be installed to log to a file");
         }
 
-        $logHandler = new StreamHandler(yield File\open($arguments->get("file"), "a"), $level);
+        $path = \str_replace('*', \getmypid(), $arguments->get("file"));
+
+        $logHandler = new StreamHandler(yield File\open($path, "a"), $level);
         $formatter = new LineFormatter;
     } else {
         $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
@@ -175,7 +178,7 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments): \Generator {
         exit(1);
     }
 
-    $logger->info("Starting cluster with " . $workers . " workers");
+    $logger->info("Starting cluster PID " . \getmypid() . " with " . $workers . " workers");
 
     \array_unshift($workerArguments, $arguments->get("script"));
     $watcher = new Watcher($workerArguments, $logger);
