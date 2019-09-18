@@ -39,12 +39,6 @@ final class Watcher
     /** @var Internal\WorkerHub */
     private $hub;
 
-    /** @var callable */
-    private $bind;
-
-    /** @var callable */
-    private $notify;
-
     /** @var \SplObjectStorage */
     private $workers;
 
@@ -82,9 +76,6 @@ final class Watcher
         );
 
         $this->workers = new \SplObjectStorage;
-
-        $this->bind = \Closure::fromCallable([$this, 'bindSocket']);
-        $this->notify = \Closure::fromCallable([$this, 'onReceivedMessage']);
     }
 
     public function __destruct()
@@ -168,7 +159,13 @@ final class Watcher
 
             $this->logger->info(\sprintf('Started worker with ID %d', $id));
 
-            $worker = new Internal\IpcParent($context, $this->logger, $this->bind, $this->notify, $socket ?? null);
+            $worker = new Internal\IpcParent(
+                $context,
+                $this->logger,
+                \Closure::fromCallable([$this, 'bindSocket']),
+                \Closure::fromCallable([$this, 'handleMessage']),
+                $socket ?? null
+            );
 
             if ($context instanceof Process) {
                 $stdout = call(function () use ($context): \Generator {
@@ -401,7 +398,7 @@ final class Watcher
      * @param string $event
      * @param mixed $data
      */
-    private function onReceivedMessage(string $event, $data): void
+    private function handleMessage(string $event, $data): void
     {
         foreach ($this->onMessage[$event] ?? [] as $callback) {
             asyncCall($callback, $data);
