@@ -19,7 +19,7 @@ use Monolog\Logger;
 // Run using bin/cluster examples/simple-http-server.php
 // Test using your browser by connecting to http://localhost:8080/
 
-Amp\Loop::run(function () {
+Amp\Loop::run(static function () {
     // Create socket servers using the Cluster::listen() method to share ports across processes.
     // Cluster::listen() returns a promise, so yield the array to wait for all promises to resolve.
     $sockets = yield [

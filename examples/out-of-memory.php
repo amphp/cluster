@@ -10,10 +10,10 @@ use Amp\Loop;
 use Monolog\Logger;
 
 // Run using bin/cluster -w 1 examples/out-of-memory.php
-// The single cluster worker started will allocate more memory every 100 ms until failing due to
+// The single cluster worker started will allocate more memory every 1000 ms until failing due to
 // exceeding the configured limit. The cluster watcher will automatically restart the process.
 
-Loop::run(function () {
+Loop::run(static function () {
     $id = Cluster::getId();
 
     // Creating a log handler in this way allows the script to be run in a cluster or standalone.
@@ -30,16 +30,15 @@ Loop::run(function () {
     $buffer = "";
     $character = "🍺";
 
-    $watcher = Loop::repeat(100, function () use (&$buffer, $character, $logger, $id): void {
-        $allocationSize = \random_int(2 ** 16, 2 ** 20);
-        $logger->info(\sprintf("Allocating %s %d times in worker ID %d", $character, $allocationSize, $id));
+    $watcher = Loop::repeat(1000, static function () use (&$buffer, $character, $logger, $id): void {
+        $allocationSize = \random_int(2 ** 20, 2 ** 24);
         $buffer .= \str_repeat($character, $allocationSize);
         $logger->info(\sprintf("Worker ID %d is now using %d bytes of memory", $id, \memory_get_usage(true)));
     });
 
-    $logger->info(\sprintf("Worker %d started.", $id));
+    $logger->info(\sprintf("Worker %d started", $id));
 
-    Cluster::onTerminate(function () use ($logger, $watcher): void {
+    Cluster::onTerminate(static function () use ($logger, $watcher): void {
         $logger->info("Received termination request");
         Loop::cancel($watcher);
     });
