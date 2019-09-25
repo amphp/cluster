@@ -29,6 +29,129 @@ final class Cluster
     private static $signalWatchers;
 
     /**
+     * @return bool
+     */
+    public static function isWorker(): bool
+    {
+        return self::$client !== null;
+    }
+
+    /**
+     * @return int Returns the process ID or thread ID of the execution context.
+     */
+    public static function getId(): int
+    {
+        return \defined("AMP_CONTEXT_ID") ? \AMP_CONTEXT_ID : \getmypid();
+    }
+
+    /**
+     * @param string                  $uri
+     * @param Socket\BindContext|null $listenContext
+     *
+     * @return Promise
+     */
+    public static function listen(string $uri, ?Socket\BindContext $listenContext = null): Promise
+    {
+        return call(static function () use ($uri, $listenContext): \Generator {
+            if (!self::isWorker()) {
+                return Server::listen($uri, $listenContext);
+            }
+
+            $listenContext = $listenContext ?? new Socket\BindContext;
+
+            if (canReusePort()) {
+                $position = \strrpos($uri, ":");
+                $port = $position ? (int) \substr($uri, $position) : 0;
+
+                if ($port === 0) {
+                    $uri = yield self::$client->selectPort($uri);
+                }
+
+                $listenContext = $listenContext->withReusePort();
+                return Server::listen($uri, $listenContext);
+            }
+
+            $socket = yield self::$client->importSocket($uri);
+            return self::listenOnBoundSocket($socket, $listenContext);
+        });
+    }
+
+    /**
+     * Attaches a callback to be invoked when a message is received from the parent process.
+     *
+     * @param string   $event
+     * @param callable $callback
+     */
+    public static function onMessage(string $event, callable $callback): void
+    {
+        self::$onMessage[$event][] = $callback;
+    }
+
+    /**
+     * @param string $event Event name.
+     * @param mixed  $data Send data to the parent.
+     *
+     * @return Promise
+     */
+    public static function send(string $event, $data = null): Promise
+    {
+        if (!self::isWorker()) {
+            return new Success; // Ignore sent messages when running as a standalone process.
+        }
+
+        return self::$client->send($event, $data);
+    }
+
+    /**
+     * @param callable $callable Callable to invoke to shutdown the process.
+     */
+    public static function onTerminate(callable $callable): void
+    {
+        if (self::$onClose === null) {
+            return;
+        }
+
+        if (self::$signalWatchers === null && !self::isWorker()) {
+            self::$signalWatchers = [];
+
+            try {
+                $signalHandler = \Closure::fromCallable([self::class, 'stop']);
+                self::$signalWatchers[] = Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler);
+                self::$signalWatchers[] = Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler);
+
+                foreach (self::$signalWatchers as $signalWatcher) {
+                    Loop::unreference($signalWatcher);
+                }
+            } catch (Loop\UnsupportedFeatureException $e) {
+                // ignore if extensions are missing or OS is Windows
+            }
+        }
+
+        self::$onClose[] = $callable;
+    }
+
+    /**
+     * Creates a log handler in worker processes that communicates log messages to the parent.
+     *
+     * @param string $logLevel Log level for the IPC handler
+     * @param bool   $bubble Bubble flag for the IPC handler
+     *
+     * @return HandlerInterface
+     *
+     * @throws \Error Thrown if not running as a worker.
+     */
+    public static function createLogHandler(string $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface
+    {
+        if (!self::isWorker()) {
+            throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
+                "Create your own log handler when not running as part of a cluster." .
+                "Use " . __CLASS__ . "::isWorker() to determine if the process is running as a worker");
+        }
+
+        return new Internal\IpcLogHandler(self::$client, $logLevel, $bubble);
+    }
+
+    /**
      * @noinspection PhpUnusedPrivateMethodInspection Used by rebinding a Closure to this class.
      *
      * @param Channel                    $channel
@@ -40,7 +163,11 @@ final class Cluster
     {
         self::$onClose = [];
 
-        self::$client = new Internal\IpcClient(\Closure::fromCallable([self::class, 'handleMessage']), $channel, $socket);
+        self::$client = new Internal\IpcClient(
+            \Closure::fromCallable([self::class, 'handleMessage']),
+            $channel,
+            $socket
+        );
 
         return call(static function (): \Generator {
             try {
@@ -87,7 +214,7 @@ final class Cluster
      */
     private static function stop(): Promise
     {
-        return call(function (): \Generator {
+        return call(static function (): \Generator {
             [$exceptions] = yield self::terminate();
 
             if ($count = \count($exceptions)) {
@@ -134,54 +261,6 @@ final class Cluster
     }
 
     /**
-     * @return bool
-     */
-    public static function isWorker(): bool
-    {
-        return self::$client !== null;
-    }
-
-    /**
-     * @return int Returns the process ID or thread ID of the execution context.
-     */
-    public static function getId(): int
-    {
-        return \defined("AMP_CONTEXT_ID") ? \AMP_CONTEXT_ID : \getmypid();
-    }
-
-    /**
-     * @param string                  $uri
-     * @param Socket\BindContext|null $listenContext
-     *
-     * @return Promise
-     */
-    public static function listen(string $uri, ?Socket\BindContext $listenContext = null): Promise
-    {
-        return call(function () use ($uri, $listenContext): \Generator {
-            if (!self::isWorker()) {
-                return Server::listen($uri, $listenContext);
-            }
-
-            $listenContext = $listenContext ?? new Socket\BindContext;
-
-            if (canReusePort()) {
-                $position = \strrpos($uri, ":");
-                $port = $position ? (int) \substr($uri, $position) : 0;
-
-                if ($port === 0) {
-                    $uri = yield self::$client->selectPort($uri);
-                }
-
-                $listenContext = $listenContext->withReusePort();
-                return Server::listen($uri, $listenContext);
-            }
-
-            $socket = yield self::$client->importSocket($uri);
-            return self::listenOnBoundSocket($socket, $listenContext);
-        });
-    }
-
-    /**
      * Internal callback triggered when a message is received from the parent.
      *
      * @param string $event
@@ -195,87 +274,12 @@ final class Cluster
     }
 
     /**
-     * Attaches a callback to be invoked when a message is received from the parent process.
-     *
-     * @param string   $event
-     * @param callable $callback
-     */
-    public static function onMessage(string $event, callable $callback): void
-    {
-        self::$onMessage[$event][] = $callback;
-    }
-
-    /**
-     * @param string $event Event name.
-     * @param mixed  $data  Send data to the parent.
-     *
-     * @return Promise
-     */
-    public static function send(string $event, $data = null): Promise
-    {
-        if (!self::isWorker()) {
-            return new Success; // Ignore sent messages when running as a standalone process.
-        }
-
-        return self::$client->send($event, $data);
-    }
-
-    /**
-     * @param callable $callable Callable to invoke to shutdown the process.
-     */
-    public static function onTerminate(callable $callable): void
-    {
-        if (self::$onClose === null) {
-            return;
-        }
-
-        if (self::$signalWatchers === null && !self::isWorker()) {
-            self::$signalWatchers = [];
-
-            try {
-                $signalHandler = \Closure::fromCallable([self::class, 'stop']);
-                self::$signalWatchers[] = Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler);
-                self::$signalWatchers[] = Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler);
-
-                foreach (self::$signalWatchers as $signalWatcher) {
-                    Loop::unreference($signalWatcher);
-                }
-            } catch (Loop\UnsupportedFeatureException $e) {
-                // ignore if extensions are missing or OS is Windows
-            }
-        }
-
-        self::$onClose[] = $callable;
-    }
-
-    /**
-     * Creates a log handler in worker processes that communicates log messages to the parent.
-     *
-     * @param string $logLevel Log level for the IPC handler
-     * @param bool   $bubble   Bubble flag for the IPC handler
-     *
-     * @return HandlerInterface
-     *
-     * @throws \Error Thrown if not running as a worker.
-     */
-    public static function createLogHandler(string $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface
-    {
-        if (!self::isWorker()) {
-            throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
-                "Create your own log handler when not running as part of a cluster." .
-                "Use " . __CLASS__ . "::isWorker() to determine if the process is running as a worker");
-        }
-
-        return new Internal\IpcLogHandler(self::$client, $logLevel, $bubble);
-    }
-
-    /**
-     * @param resource                $socket Socket resource (not a stream socket resource).
-     * @param Socket\BindContext|null $listenContext
+     * @param resource           $socket Socket resource (not a stream socket resource).
+     * @param Socket\BindContext $listenContext
      *
      * @return Server
      */
-    private static function listenOnBoundSocket($socket, ?Socket\BindContext $listenContext): Server
+    private static function listenOnBoundSocket($socket, Socket\BindContext $listenContext): Server
     {
         $context = $listenContext->toStreamContextArray();
 
