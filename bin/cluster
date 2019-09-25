@@ -32,6 +32,8 @@ const HELP = <<<EOT
     -l, --log         Set the minimum log output level (default: debug)
     -f, --file        Log to file path instead of STDOUT (requires amphp/file)
                       Asterisks (*) in path will be replaced with cluster PID
+    -n, --name        Cluster process name
+    -p, --pid-file    File path to write current PID to
     --                Marker to separate cluster and worker arguments
 
     Example Usage:
@@ -45,7 +47,7 @@ EOT;
 
 \error_reporting(E_ALL);
 
-(function (): void {
+(static function (): void {
     $paths = [
         \dirname(__DIR__, 3) . "/autoload.php",
         \dirname(__DIR__) . "/vendor/autoload.php",
@@ -91,6 +93,17 @@ $args = [
         "castTo" => "int",
         "defaultValue" => countCpuCores(),
     ],
+    "pid-file" => [
+        "prefix" => "p",
+        "longPrefix" => "pid-file",
+        "description" => "File path to write current PID to",
+    ],
+    "name" => [
+        "prefix" => "n",
+        "longPrefix" => "name",
+        "description" => "Cluster process name",
+        "defaultValue" => "amp-cluster",
+    ],
     "script" => [
         "description" => "Defines the script to run",
     ],
@@ -111,7 +124,7 @@ foreach ($args as $arg) {
 $arguments = new League\CLImate\Argument\Manager;
 $arguments->add($args);
 
-Loop::run(function () use ($argc, $argv, $flags, $arguments): \Generator {
+Loop::run(static function () use ($argc, $argv, $flags, $arguments): \Generator {
     try {
         $workerArguments = [];
 
@@ -147,6 +160,19 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments): \Generator {
         exit(1);
     }
 
+    // some command line SAPIs (e.g. phpdbg) don't have that function
+    if (\function_exists("cli_set_process_title")) {
+        @\cli_set_process_title($arguments->get("name"));
+    }
+
+    if ($arguments->defined("pid-file")) {
+        \file_put_contents($arguments->get("pid-file"), \getmypid());
+        $pidFilePath = \realpath($arguments->get("pid-file"));
+        \register_shutdown_function(static function () use ($pidFilePath) {
+            @\unlink($pidFilePath);
+        });
+    }
+
     $level = $arguments->get("log");
 
     if ($arguments->defined("file", $argv)) {
@@ -180,11 +206,18 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments): \Generator {
 
     $logger->info("Starting cluster PID " . \getmypid() . " with " . $workers . " workers");
 
+    if (isset($pidFilePath)) {
+        $logger->info("Wrote PID file to " . $pidFilePath);
+    }
+
     \array_unshift($workerArguments, $arguments->get("script"));
     $watcher = new Watcher($workerArguments, $logger);
 
     try {
-        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use ($watcher, $logger): void {
+        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use (
+            $watcher,
+            $logger
+        ): void {
             Loop::cancel($watcherId);
 
             $logger->info(\sprintf('Stopping cluster due to received signal: %s (%d)', $signalName, $signalNumber));
@@ -194,7 +227,10 @@ Loop::run(function () use ($argc, $argv, $flags, $arguments): \Generator {
         Loop::unreference(Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler, 'SIGINT'));
         Loop::unreference(Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler, 'SIGTERM'));
 
-        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use ($watcher, $logger): \Generator {
+        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use (
+            $watcher,
+            $logger
+        ): \Generator {
             Loop::disable($watcherId);
 
             $logger->info(\sprintf('Restarting cluster due to received signal: %s (%d)', $signalName, $signalNumber));

@@ -26,6 +26,14 @@ Log entries may be send to the cluster watcher to be logged to a single stream b
 
 Often signals are used to gracefully shutdown a server when a `SIGTERM` signal is received by the process. Instead of `Amp\Loop::onSignal()`, cluster-enable applications should use `Amp\Cluster\Cluster::onTerminate()` to define functions that handle graceful shutdown when `SIGINT` or `SIGTERM` is received.
 
+#### Hot Reload in IntelliJ / PHPStorm
+
+IntelliJ's file watchers can be used as trigger to send the `USR1` signal to the cluster's watcher process automatically on every file save.
+You need to write a PID file using `--pid-file /path/to/file.pid` when starting the cluster and then setup a file watcher in the settings using the following settings:
+
+ - Program: `bash`
+ - Arguments: `-c "kill -10 $(cat /path/to/file.pid)"`
+
 ## Example HTTP Server
 
 The example below (which can be found in the [examples](https://github.com/amphp/cluster/tree/master/examples) directory as [simple-http-server.php](https://github.com/amphp/cluster/blob/master/examples/simple-http-server.php)) uses [`amphp/http-server`](https://github.com/amphp/http-server) to create an HTTP server that can be run in any number of processes simultaneously.
