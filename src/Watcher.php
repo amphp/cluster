@@ -196,13 +196,13 @@ final class Watcher
                     try {
                         yield $runner; // Wait for worker to exit.
                         $this->logger->info("Worker {$id} terminated cleanly" .
-                            ($this->running ? ", restarting..." : "."));
+                            ($this->running ? ", restarting..." : ""));
                     } catch (ChannelException $exception) {
                         $this->logger->error("Worker {$id} died unexpectedly" .
-                            ($this->running ? ", restarting..." : "."));
+                            ($this->running ? ", restarting..." : ""));
                     } catch (ContextException $exception) {
                         $this->logger->error("Worker {$id} died unexpectedly" .
-                            ($this->running ? ", restarting..." : "."));
+                            ($this->running ? ", restarting..." : ""));
                     } catch (\Throwable $exception) {
                         $this->logger->error("Worker {$id} failed: " . (string) $exception);
                         throw $exception;
@@ -326,12 +326,12 @@ final class Watcher
 
             if ($count = \count($exceptions)) {
                 if ($count === 1) {
-                    $exception = $exceptions[0];
+                    $exception = \current($exceptions);
                     throw new ClusterException("Stopping the cluster failed: " . $exception->getMessage(), 0, $exception);
                 }
 
                 $exception = new MultiReasonException($exceptions);
-                $message = \implode('; ', \array_map(function (\Throwable $exception): string {
+                $message = \implode('; ', \array_map(static function (\Throwable $exception): string {
                     return $exception->getMessage();
                 }, $exceptions));
                 throw new ClusterException("Stopping the cluster failed: " . $message, 0, $exception);
