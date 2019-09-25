@@ -38,6 +38,7 @@
     },
     "require-dev": {
         "amphp/file": "^1 || ^0.3",
+        "amphp/http-server": "^2-RC",
         "amphp/phpunit-util": "^1.1",
         "amphp/php-cs-fixer-config": "dev-master",
         "phpunit/phpunit": "^8 || ^7",
