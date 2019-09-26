@@ -11,10 +11,11 @@ use Amp\Socket\ResourceSocket;
 use Amp\TimeoutException;
 use function Amp\call;
 
+/** @internal */
 final class WorkerHub
 {
-    const PROCESS_START_TIMEOUT = 5000;
-    const KEY_RECEIVE_TIMEOUT = 1000;
+    private const PROCESS_START_TIMEOUT = 5000;
+    private const KEY_RECEIVE_TIMEOUT = 1000;
 
     /** @var resource|null */
     private $server;
@@ -70,7 +71,7 @@ final class WorkerHub
             $client = ResourceSocket::fromServerSocket($client);
 
             try {
-                $received = yield Promise\timeout(call(function () use ($client): \Generator {
+                $received = yield Promise\timeout(call(static function () use ($client): \Generator {
                     $key = "";
                     do {
                         if ((null === $chunk = yield $client->read())) {

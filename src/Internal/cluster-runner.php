@@ -10,7 +10,7 @@ use Amp\Socket;
 use Amp\Socket\ResourceSocket;
 use Amp\TimeoutCancellationToken;
 
-return function (Channel $channel) use ($argc, $argv) {
+return static function (Channel $channel) use ($argc, $argv) {
     // Remove this scripts path from process arguments.
     --$argc;
     \array_shift($argv);
@@ -40,7 +40,8 @@ return function (Channel $channel) use ($argc, $argv) {
         yield $transferSocket->write($key);
     }
 
-    $promise = (function () use ($channel, $transferSocket): Promise {
+    $promise = (static function () use ($channel, $transferSocket): Promise {
+        /** @noinspection PhpUndefinedClassInspection */
         return static::run($channel, $transferSocket);
     })->bindTo(null, Cluster::class)();
 
@@ -53,7 +54,8 @@ return function (Channel $channel) use ($argc, $argv) {
     }
 
     // Protect current scope by requiring script within another function.
-    (function () use ($argc, $argv): void { // Using $argc so it is available to the required script.
+    (static function () use ($argc, $argv): void { // Using $argc so it is available to the required script.
+        /** @noinspection PhpIncludeInspection */
         require $argv[0];
     })();
 

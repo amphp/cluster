@@ -4,7 +4,9 @@ namespace Amp\Cluster\Internal;
 
 use Monolog\Handler\AbstractProcessingHandler;
 use Psr\Log\LogLevel;
+use function Amp\Promise\rethrow;
 
+/** @internal */
 final class IpcLogHandler extends AbstractProcessingHandler
 {
     /** @var IpcClient */
@@ -19,6 +21,6 @@ final class IpcLogHandler extends AbstractProcessingHandler
     /** @inheritdoc */
     protected function write(array $record): void
     {
-        $this->client->log($record);
+        rethrow($this->client->log($record));
     }
 }

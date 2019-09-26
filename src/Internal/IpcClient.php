@@ -9,13 +9,14 @@ use Amp\Promise;
 use Amp\Socket\ResourceSocket;
 use function Amp\call;
 
+/** @internal */
 final class IpcClient
 {
-    const TYPE_PING = 0;
-    const TYPE_DATA = 1;
-    const TYPE_IMPORT_SOCKET = 2;
-    const TYPE_SELECT_PORT = 3;
-    const TYPE_LOG = 4;
+    public const TYPE_PING = 0;
+    public const TYPE_DATA = 1;
+    public const TYPE_IMPORT_SOCKET = 2;
+    public const TYPE_SELECT_PORT = 3;
+    public const TYPE_LOG = 4;
 
     /** @var string|null */
     private $importWatcher;

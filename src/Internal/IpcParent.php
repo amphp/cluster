@@ -10,9 +10,10 @@ use Amp\Socket\Socket;
 use Monolog\Logger;
 use function Amp\call;
 
+/** @internal */
 final class IpcParent
 {
-    const PING_TIMEOUT = 10000;
+    private const PING_TIMEOUT = 10000;
 
     /** @var Socket|null */
     private $socket;
@@ -86,6 +87,7 @@ final class IpcParent
         if ($this->watcher) {
             Loop::disable($this->watcher);
         }
+
         return $this->context->send(null);
     }
 
@@ -137,7 +139,7 @@ final class IpcParent
                 break;
 
             default:
-                throw new \UnexpectedValueException("Unexpected message type");
+                throw new \UnexpectedValueException("Unexpected message type: " . $message[0]);
         }
     }
 }
