@@ -1,4 +1,6 @@
-# cluster
+<p align="center">
+<a href="https://github.com/amphp/cluster"><img src="https://raw.githubusercontent.com/amphp/logo/master/repos/cluster.png?v=2019-09-26" alt="cluster"/></a>
+</p>
 
 This package provides tools to run multiple PHP processes that can listen on the same port, such as multiple [HTTP server](https://github.com/amphp/http-server) instances listening on the same port. Port-sharing is achieved with `SO_REUSEPORT` where available and socket transfers otherwise.
 
