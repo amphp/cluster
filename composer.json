@@ -1,15 +1,18 @@
 {
     "name": "amphp/cluster",
     "homepage": "https://github.com/amphp/cluster",
-    "description": "Cluster",
+    "description": "Building multi-core network applications with PHP.",
     "keywords": [
         "cluster",
         "multi-process",
+        "multi-core",
         "parallel",
         "async",
         "non-blocking",
         "amp",
-        "amphp"
+        "amphp",
+        "sockets",
+        "watcher"
     ],
     "license": "MIT",
     "authors": [
