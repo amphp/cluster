@@ -32,7 +32,7 @@ IntelliJ's file watchers can be used as trigger to send the `USR1` signal to the
 You need to write a PID file using `--pid-file /path/to/file.pid` when starting the cluster and then setup a file watcher in the settings using the following settings:
 
  - Program: `bash`
- - Arguments: `-c "kill -10 $(cat /path/to/file.pid)"`
+ - Arguments: `-c "if test -f ~/test-cluster.pid; then kill -10 $(cat ~/test-cluster.pid); fi"`
 
 ## Example HTTP Server
 
