@@ -348,12 +348,12 @@ final class Watcher
      *
      * @return Promise Resolved once data has been sent to all workers.
      */
-    public function broadcast($data): Promise
+    public function broadcast(string $event, $data = null): Promise
     {
         $promises = [];
         /** @var Internal\IpcParent $worker */
         foreach ($this->workers as $worker) {
-            $promises[] = $worker->send($data);
+            $promises[] = $worker->send($event, $data);
         }
         return Promise\all($promises);
     }
