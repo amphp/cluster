@@ -2,31 +2,30 @@
 
 namespace Amp\Cluster;
 
+use Amp\Deferred;
 use Amp\Loop;
 use Amp\MultiReasonException;
 use Amp\Parallel\Sync\Channel;
-use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\Server;
-use Amp\Success;
 use Monolog\Handler\HandlerInterface;
 use Psr\Log\LogLevel;
-use function Amp\asyncCall;
-use function Amp\call;
+use function Amp\await;
+use function Amp\defer;
 
 final class Cluster
 {
-    /** @var Internal\IpcClient */
-    private static $client;
+    private static ?Internal\IpcClient $client = null;
 
-    /** @var callable[]|null */
-    private static $onClose;
+    private static bool $terminated = false;
 
     /** @var callable[][] */
-    private static $onMessage = [];
+    private static array $onMessage = [];
 
-    /** @var string[] */
-    private static $signalWatchers;
+    /** @var string[]|null */
+    private static ?array $signalWatchers = null;
+
+    private static ?Deferred $deferred = null;
 
     /**
      * @return bool
@@ -48,32 +47,30 @@ final class Cluster
      * @param string                  $uri
      * @param Socket\BindContext|null $listenContext
      *
-     * @return Promise
+     * @return Server
      */
-    public static function listen(string $uri, ?Socket\BindContext $listenContext = null): Promise
+    public static function listen(string $uri, ?Socket\BindContext $listenContext = null): Server
     {
-        return call(static function () use ($uri, $listenContext): \Generator {
-            if (!self::isWorker()) {
-                return Server::listen($uri, $listenContext);
+        if (!self::isWorker()) {
+            return Server::listen($uri, $listenContext);
+        }
+
+        $listenContext = $listenContext ?? new Socket\BindContext;
+
+        if (canReusePort()) {
+            $position = \strrpos($uri, ":");
+            $port = $position ? (int) \substr($uri, $position) : 0;
+
+            if ($port === 0) {
+                $uri = self::$client->selectPort($uri);
             }
 
-            $listenContext = $listenContext ?? new Socket\BindContext;
+            $listenContext = $listenContext->withReusePort();
+            return Server::listen($uri, $listenContext);
+        }
 
-            if (canReusePort()) {
-                $position = \strrpos($uri, ":");
-                $port = $position ? (int) \substr($uri, $position) : 0;
-
-                if ($port === 0) {
-                    $uri = yield self::$client->selectPort($uri);
-                }
-
-                $listenContext = $listenContext->withReusePort();
-                return Server::listen($uri, $listenContext);
-            }
-
-            $socket = yield self::$client->importSocket($uri);
-            return self::listenOnBoundSocket($socket, $listenContext);
-        });
+        $socket = self::$client->importSocket($uri);
+        return self::listenOnBoundSocket($socket, $listenContext);
     }
 
     /**
@@ -90,44 +87,42 @@ final class Cluster
     /**
      * @param string $event Event name.
      * @param mixed  $data Send data to the parent.
-     *
-     * @return Promise
      */
-    public static function send(string $event, $data = null): Promise
+    public static function send(string $event, $data = null): void
     {
         if (!self::isWorker()) {
-            return new Success; // Ignore sent messages when running as a standalone process.
+            return; // Ignore sent messages when running as a standalone process.
         }
 
-        return self::$client->send($event, $data);
+        self::$client->send($event, $data);
     }
 
-    /**
-     * @param callable $callable Callable to invoke to shutdown the process.
-     */
-    public static function onTerminate(callable $callable): void
+    public static function awaitTermination(): void
     {
-        if (self::$onClose === null) {
-            return;
+        if (self::$deferred === null) {
+            self::$deferred = new Deferred;
         }
 
-        if (self::$signalWatchers === null && !self::isWorker()) {
-            self::$signalWatchers = [];
+        if (self::$signalWatchers === null) {
+            self::$signalWatchers = [
+                'SIGINT' => \defined('SIGINT') ? \SIGINT : 2,
+                'SIGQUIT' => \defined('SIGQUIT') ? \SIGQUIT : 3,
+                'SIGTERM' => \defined('SIGTERM') ? \SIGTERM : 15,
+                'SIGSTOP' => \defined('SIGSTOP') ? \SIGSTOP : 19,
+            ];
 
             try {
-                $signalHandler = \Closure::fromCallable([self::class, 'stop']);
-                self::$signalWatchers[] = Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler);
-                self::$signalWatchers[] = Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler);
-
-                foreach (self::$signalWatchers as $signalWatcher) {
-                    Loop::unreference($signalWatcher);
-                }
+                self::$signalWatchers = \array_map(function (int $signo): string {
+                    $watcher = Loop::onSignal($signo, [self::class, 'stop']);
+                    Loop::unreference($watcher);
+                    return $watcher;
+                }, self::$signalWatchers);
             } catch (Loop\UnsupportedFeatureException $e) {
                 // ignore if extensions are missing or OS is Windows
             }
         }
 
-        self::$onClose[] = $callable;
+        await(self::$deferred->promise());
     }
 
     /**
@@ -156,91 +151,51 @@ final class Cluster
      *
      * @param Channel                    $channel
      * @param Socket\ResourceSocket|null $socket
-     *
-     * @return Promise Resolved when the IPC client has terminated.
      */
-    private static function run(Channel $channel, Socket\ResourceSocket $socket = null): Promise
+    private static function run(Channel $channel, ?Socket\ResourceSocket $socket = null): void
     {
-        self::$onClose = [];
-
         self::$client = new Internal\IpcClient(
             \Closure::fromCallable([self::class, 'handleMessage']),
             $channel,
             $socket
         );
 
-        return call(static function (): \Generator {
-            try {
-                yield self::$client->run();
-            } catch (\Throwable $exception) {
-                // Exception rethrown below as part of MultiReasonException.
+        $exceptions = [];
+
+        try {
+            self::$client->run();
+        } catch (\Throwable $exception) {
+            // Exception rethrown below as part of MultiReasonException.
+            $exceptions[] = $exception;
+        }
+
+        try {
+            self::$client->close();
+        } catch (\Throwable $exception) {
+            $exceptions[] = $exception;
+        }
+
+        if ($count = \count($exceptions)) {
+            if ($count === 1) {
+                $exception = $exceptions[0];
+                throw new ClusterException("Cluster worker failed: " . $exception->getMessage(), 0, $exception);
             }
 
-            [$exceptions] = yield self::terminate();
-
-            if (isset($exception)) {
-                $exceptions[] = $exception;
-            }
-
-            try {
-                yield self::$client->close();
-            } catch (\Throwable $exception) {
-                $exceptions[] = $exception;
-            }
-
-            self::$client = null;
-
-            if ($count = \count($exceptions)) {
-                if ($count === 1) {
-                    $exception = $exceptions[0];
-                    throw new ClusterException("Cluster worker failed: " . $exception->getMessage(), 0, $exception);
-                }
-
-                $exception = new MultiReasonException($exceptions);
-                $message = \implode('; ', \array_map(function (\Throwable $exception): string {
-                    return $exception->getMessage();
-                }, $exceptions));
-                throw new ClusterException("Cluster worker failed: " . $message, 0, $exception);
-            }
-        });
-    }
-
-    /**
-     * @noinspection PhpUnusedPrivateMethodInspection
-     *
-     * Used as the termination signal callback when not running as a cluster worker.
-     *
-     * @return Promise
-     */
-    private static function stop(): Promise
-    {
-        return call(static function (): \Generator {
-            [$exceptions] = yield self::terminate();
-
-            if ($count = \count($exceptions)) {
-                if ($count === 1) {
-                    $exception = $exceptions[0];
-                    throw new ClusterException("Cluster worker failed: " . $exception->getMessage(), 0, $exception);
-                }
-
-                $exception = new MultiReasonException($exceptions);
-                $message = \implode('; ', \array_map(function (\Throwable $exception): string {
-                    return $exception->getMessage();
-                }, $exceptions));
-                throw new ClusterException("Stopping failed: " . $message, 0, $exception);
-            }
-        });
+            $exception = new MultiReasonException($exceptions);
+            $message = \implode('; ', \array_map(function (\Throwable $exception): string {
+                return $exception->getMessage();
+            }, $exceptions));
+            throw new ClusterException("Cluster worker failed: " . $message, 0, $exception);
+        }
     }
 
     /**
      * Invokes any termination callbacks.
-     *
-     * @return Promise
      */
-    private static function terminate(): Promise
+    public static function stop(): void
     {
-        if (self::$onClose === null) {
-            return Promise\any([]);
+        if (self::$terminated) {
+            return;
         }
 
         if (self::$signalWatchers) {
@@ -249,15 +204,11 @@ final class Cluster
             }
         }
 
-        $onClose = self::$onClose;
-        self::$onClose = null;
-
-        $promises = [];
-        foreach ($onClose as $callable) {
-            $promises[] = call($callable);
+        if (self::$deferred === null) {
+            self::$deferred = new Deferred;
         }
 
-        return Promise\any($promises);
+        self::$deferred->resolve();
     }
 
     /**
@@ -269,7 +220,7 @@ final class Cluster
     private static function handleMessage(string $event, $data): void
     {
         foreach (self::$onMessage[$event] ?? [] as $callback) {
-            asyncCall($callback, $data);
+            defer($callback, $data);
         }
     }
 

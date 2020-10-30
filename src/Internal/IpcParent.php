@@ -8,15 +8,15 @@ use Amp\Promise;
 use Amp\Socket\Server;
 use Amp\Socket\Socket;
 use Monolog\Logger;
-use function Amp\call;
+use function Amp\async;
+use function Amp\asyncCallable;
 
 /** @internal */
 final class IpcParent
 {
     private const PING_TIMEOUT = 10000;
 
-    /** @var Socket|null */
-    private $socket;
+    private ?Socket $socket;
 
     /** @var callable */
     private $bind;
@@ -24,17 +24,13 @@ final class IpcParent
     /** @var callable */
     private $onData;
 
-    /** @var Logger */
-    private $logger;
+    private Logger $logger;
 
-    /** @var Context */
-    private $context;
+    private Context $context;
 
-    /** @var string|null */
-    private $watcher;
+    private ?string $watcher = null;
 
-    /** @var int */
-    private $lastActivity;
+    private int $lastActivity;
 
     public function __construct(Context $context, Logger $logger, callable $bind, callable $onData, Socket $socket = null)
     {
@@ -48,29 +44,29 @@ final class IpcParent
         $this->context = $context;
     }
 
-    public function send(string $event, $data = null): Promise
+    public function send(string $event, $data = null): void
     {
-        return $this->context->send([IpcClient::TYPE_DATA, $event, $data]);
+        $this->context->send([IpcClient::TYPE_DATA, $event, $data]);
     }
 
     public function run(): Promise
     {
-        $this->watcher = Loop::repeat(self::PING_TIMEOUT / 2, function (): void {
+        $this->watcher = Loop::repeat(self::PING_TIMEOUT / 2, asyncCallable(function (): void {
             if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                 $this->shutdown();
             } else {
                 $this->context->send([IpcClient::TYPE_PING]);
             }
-        });
+        }));
 
-        return call(function (): \Generator {
+        return async(function (): mixed {
             try {
-                while (null !== $message = yield $this->context->receive()) {
+                while (null !== $message = $this->context->receive()) {
                     $this->lastActivity = \time();
-                    yield from $this->handleMessage($message);
+                    $this->handleMessage($message);
                 }
 
-                return yield $this->context->join();
+                return $this->context->join();
             } finally {
                 Loop::cancel($this->watcher);
 
@@ -82,16 +78,16 @@ final class IpcParent
         });
     }
 
-    public function shutdown(): Promise
+    public function shutdown(): void
     {
         if ($this->watcher) {
             Loop::disable($this->watcher);
         }
 
-        return $this->context->send(null);
+        $this->context->send(null);
     }
 
-    private function handleMessage(array $message): \Generator
+    private function handleMessage(array $message): void
     {
         \assert(\count($message) >= 1);
 
@@ -112,7 +108,7 @@ final class IpcParent
                     throw new \RuntimeException("Could not transfer socket: " . $error);
                 }
 
-                yield $this->context->send([IpcClient::TYPE_IMPORT_SOCKET]);
+                $this->context->send([IpcClient::TYPE_IMPORT_SOCKET]);
                 break;
 
             case IpcClient::TYPE_SELECT_PORT:
@@ -120,7 +116,7 @@ final class IpcParent
                 $uri = $message[1];
                 $stream = ($this->bind)($uri);
                 $uri = (new Server($stream))->getAddress(); // Work around stream_socket_get_name + IPv6
-                yield $this->context->send([IpcClient::TYPE_SELECT_PORT, $uri]);
+                $this->context->send([IpcClient::TYPE_SELECT_PORT, $uri]);
                 break;
 
             case IpcClient::TYPE_PING:

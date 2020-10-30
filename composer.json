@@ -29,24 +29,25 @@
         }
     ],
     "require": {
-        "php": ">=7.1",
-        "amphp/amp": "^2",
-        "amphp/byte-stream": "^1.5",
-        "amphp/log": "^1.1",
-        "amphp/parallel": "^1.2",
-        "amphp/socket": "^1",
+        "php": ">=8",
+        "amphp/amp": "^3-dev",
+        "amphp/byte-stream": "^2-dev",
+        "amphp/log": "^2-dev",
+        "amphp/parallel": "^2-dev",
+        "amphp/socket": "^2-dev",
         "league/climate": "^3",
         "monolog/monolog": "^2 || ^1.23",
         "psr/log": "^1"
     },
     "require-dev": {
-        "amphp/file": "^1 || ^0.3",
-        "amphp/http-server": "^2-RC",
-        "amphp/phpunit-util": "^1.1",
+        "amphp/file": "^3-dev",
+        "amphp/http-server": "^3-dev",
+        "amphp/phpunit-util": "^2-dev",
         "amphp/php-cs-fixer-config": "dev-master",
-        "phpunit/phpunit": "^8 || ^7",
-        "infection/infection": "^0.7.1"
+        "phpunit/phpunit": "^9"
     },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "autoload": {
         "psr-4": {
             "Amp\\Cluster\\": "src"
@@ -65,7 +66,7 @@
         "amphp/file": "Required for logging to a file"
     },
     "conflict": {
-        "amphp/file": "<0.2 || >=2"
+        "amphp/file": "<3 || >=4"
     },
     "bin": [
         "bin/cluster"

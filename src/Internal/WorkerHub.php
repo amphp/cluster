@@ -9,7 +9,9 @@ use Amp\Parallel\Context\ContextException;
 use Amp\Promise;
 use Amp\Socket\ResourceSocket;
 use Amp\TimeoutException;
-use function Amp\call;
+use function Amp\async;
+use function Amp\asyncCallable;
+use function Amp\await;
 
 /** @internal */
 final class WorkerHub
@@ -20,20 +22,17 @@ final class WorkerHub
     /** @var resource|null */
     private $server;
 
-    /** @var string|null */
-    private $uri;
+    private string $uri;
 
     /** @var int[] */
-    private $keys;
+    private array $keys = [];
 
-    /** @var string|null */
-    private $watcher;
+    private string $watcher;
 
     /** @var Deferred[] */
-    private $acceptor = [];
+    private array $acceptor = [];
 
-    /** @var string|null */
-    private $toUnlink;
+    private ?string $toUnlink = null;
 
     public function __construct()
     {
@@ -62,7 +61,10 @@ final class WorkerHub
 
         $keys = &$this->keys;
         $acceptor = &$this->acceptor;
-        $this->watcher = Loop::onReadable($this->server, static function (string $watcher, $server) use (&$keys, &$acceptor): \Generator {
+        $this->watcher = Loop::onReadable($this->server, asyncCallable(static function (string $watcher, $server) use (
+            &$keys,
+            &$acceptor
+        ): void {
             // Error reporting suppressed since stream_socket_accept() emits E_WARNING on client accept failure.
             if (!$client = @\stream_socket_accept($server, 0)) {  // Timeout of 0 to be non-blocking.
                 return; // Accepting client failed.
@@ -71,16 +73,16 @@ final class WorkerHub
             $client = ResourceSocket::fromServerSocket($client);
 
             try {
-                $received = yield Promise\timeout(call(static function () use ($client): \Generator {
+                $received = await(Promise\timeout(async(static function () use ($client): ?string {
                     $key = "";
                     do {
-                        if ((null === $chunk = yield $client->read())) {
+                        if ((null === $chunk = $client->read())) {
                             return null;
                         }
                         $key .= $chunk;
                     } while (\strlen($key) < Watcher::KEY_LENGTH);
                     return $key;
-                }), self::KEY_RECEIVE_TIMEOUT);
+                }), self::KEY_RECEIVE_TIMEOUT));
             } catch (TimeoutException $exception) {
                 $client->close();
                 return; // Ignore possible foreign connection attempt.
@@ -96,7 +98,7 @@ final class WorkerHub
             $deferred = $acceptor[$pid];
             unset($acceptor[$pid], $keys[$received]);
             $deferred->resolve($client);
-        });
+        }));
 
         Loop::disable($this->watcher);
     }
@@ -122,27 +124,25 @@ final class WorkerHub
         return $key;
     }
 
-    public function accept(int $pid): Promise
+    public function accept(int $pid): ResourceSocket
     {
-        return call(function () use ($pid): \Generator {
-            $this->acceptor[$pid] = new Deferred;
+        $this->acceptor[$pid] = new Deferred;
 
-            Loop::enable($this->watcher);
+        Loop::enable($this->watcher);
 
-            try {
-                $socket = yield Promise\timeout($this->acceptor[$pid]->promise(), self::PROCESS_START_TIMEOUT);
-            } catch (TimeoutException $exception) {
-                $key = \array_search($pid, $this->keys, true);
-                \assert(\is_string($key), "Key for {$pid} not found");
-                unset($this->acceptor[$pid], $this->keys[$key]);
-                throw new ContextException("Starting the process timed out", 0, $exception);
-            } finally {
-                if (empty($this->acceptor)) {
-                    Loop::disable($this->watcher);
-                }
+        try {
+            $socket = await(Promise\timeout($this->acceptor[$pid]->promise(), self::PROCESS_START_TIMEOUT));
+        } catch (TimeoutException $exception) {
+            $key = \array_search($pid, $this->keys, true);
+            \assert(\is_string($key), "Key for {$pid} not found");
+            unset($this->acceptor[$pid], $this->keys[$key]);
+            throw new ContextException("Starting the process timed out", 0, $exception);
+        } finally {
+            if (empty($this->acceptor)) {
+                Loop::disable($this->watcher);
             }
+        }
 
-            return $socket;
-        });
+        return $socket;
     }
 }

@@ -5,9 +5,8 @@ namespace Amp\Cluster\Internal;
 use Amp\Deferred;
 use Amp\Loop;
 use Amp\Parallel\Sync\Channel;
-use Amp\Promise;
 use Amp\Socket\ResourceSocket;
-use function Amp\call;
+use function Amp\await;
 
 /** @internal */
 final class IpcClient
@@ -18,17 +17,14 @@ final class IpcClient
     public const TYPE_SELECT_PORT = 3;
     public const TYPE_LOG = 4;
 
-    /** @var string|null */
-    private $importWatcher;
+    private ?string $importWatcher = null;
 
-    /** @var Channel */
-    private $channel;
+    private Channel $channel;
 
     /** @var callable */
     private $onData;
 
-    /** @var \SplQueue */
-    private $pendingResponses;
+    private \SplQueue $pendingResponses;
 
     public function __construct(callable $onData, Channel $channel, ResourceSocket $socket = null)
     {
@@ -40,7 +36,9 @@ final class IpcClient
             return;
         }
 
-        $this->importWatcher = Loop::onReadable($socket->getResource(), static function (string $watcher, $socket) use ($pendingResponses): void {
+        $this->importWatcher = Loop::onReadable($socket->getResource(), static function (string $watcher, $socket) use (
+            $pendingResponses
+        ): void {
             if ($pendingResponses->isEmpty()) {
                 throw new \RuntimeException("Unexpected import-socket message.");
             }
@@ -75,28 +73,26 @@ final class IpcClient
         }
     }
 
-    public function run(): Promise
+    public function run(): void
     {
-        return call(function (): \Generator {
-            while (null !== $message = yield $this->channel->receive()) {
-                yield from $this->handleMessage($message);
-            }
-        });
+        while (null !== $message = $this->channel->receive()) {
+            $this->handleMessage($message);
+        }
     }
 
-    public function close(): Promise
+    public function close(): void
     {
-        return $this->channel->send(null);
+        $this->channel->send(null);
     }
 
-    private function handleMessage(array $message): \Generator
+    private function handleMessage(array $message): void
     {
         \assert(\count($message) >= 1);
 
         switch ($message[0]) {
             case self::TYPE_PING:
                 \assert(\count($message) === 1);
-                yield $this->channel->send([self::TYPE_PING]);
+                $this->channel->send([self::TYPE_PING]);
                 break;
 
             case self::TYPE_IMPORT_SOCKET:
@@ -127,37 +123,33 @@ final class IpcClient
         }
     }
 
-    public function importSocket(string $uri): Promise
+    public function importSocket(string $uri)
     {
-        return call(function () use ($uri): \Generator {
-            $deferred = new Deferred;
-            $this->pendingResponses->push($deferred);
+        $deferred = new Deferred;
+        $this->pendingResponses->push($deferred);
 
-            yield $this->channel->send([self::TYPE_IMPORT_SOCKET, $uri]);
+        $this->channel->send([self::TYPE_IMPORT_SOCKET, $uri]);
 
-            return yield $deferred->promise();
-        });
+        return await($deferred->promise());
     }
 
-    public function selectPort(string $uri): Promise
+    public function selectPort(string $uri): string
     {
-        return call(function () use ($uri): \Generator {
-            $deferred = new Deferred;
-            $this->pendingResponses->push($deferred);
+        $deferred = new Deferred;
+        $this->pendingResponses->push($deferred);
 
-            yield $this->channel->send([self::TYPE_SELECT_PORT, $uri]);
+        $this->channel->send([self::TYPE_SELECT_PORT, $uri]);
 
-            return yield $deferred->promise();
-        });
+        return await($deferred->promise());
     }
 
-    public function send(string $event, $data): Promise
+    public function send(string $event, $data): void
     {
-        return $this->channel->send([self::TYPE_DATA, $event, $data]);
+        $this->channel->send([self::TYPE_DATA, $event, $data]);
     }
 
-    public function log(array $record): Promise
+    public function log(array $record): void
     {
-        return $this->channel->send([self::TYPE_LOG, $record]);
+        $this->channel->send([self::TYPE_LOG, $record]);
     }
 }

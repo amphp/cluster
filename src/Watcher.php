@@ -12,47 +12,44 @@ use Amp\Parallel\Sync\ChannelException;
 use Amp\Promise;
 use Amp\Success;
 use Monolog\Logger;
+use function Amp\async;
 use function Amp\asyncCall;
+use function Amp\await;
 use function Amp\call;
+use function Amp\defer;
 
 final class Watcher
 {
-    const WORKER_TIMEOUT = 5000;
-    const KEY_LENGTH = 32;
-    const EMPTY_URI = '~';
+    public const WORKER_TIMEOUT = 5000;
+    public const KEY_LENGTH = 32;
+    public const EMPTY_URI = '~';
 
     /** @var resource[] */
-    private $sockets = [];
+    private array $sockets = [];
 
-    /** @var bool */
-    private $running = false;
+    private bool $running = false;
 
     /** @var string[] */
-    private $script;
+    private array $script;
 
-    /** @var Logger */
-    private $logger;
+    private Logger $logger;
 
-    /** @var int */
-    private $nextId = 1;
+    private int $nextId = 1;
 
-    /** @var Internal\WorkerHub */
-    private $hub;
+    private Internal\WorkerHub $hub;
 
-    /** @var \SplObjectStorage */
-    private $workers;
+    private \SplObjectStorage $workers;
 
     /** @var callable[][] */
-    private $onMessage = [];
+    private array $onMessage = [];
 
-    /** @var Deferred|null */
-    private $deferred;
+    private ?Deferred $deferred = null;
 
     /**
      * @param string|string[]  $script Script path and optional arguments.
      * @param Logger $logger
      */
-    public function __construct($script, Logger $logger)
+    public function __construct(string|array $script, Logger $logger)
     {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
@@ -98,10 +95,8 @@ final class Watcher
 
     /**
      * @param int $count Number of cluster workers to spawn.
-     *
-     * @return Promise Resolved when the cluster has started.
      */
-    public function start(int $count): Promise
+    public function start(int $count): void
     {
         if ($this->running || $this->deferred) {
             throw new \Error("The cluster is already running or has already run");
@@ -114,40 +109,38 @@ final class Watcher
         $this->deferred = new Deferred;
         $this->running = true;
 
-        return call(function () use ($count): \Generator {
-            try {
-                $promises = [];
-                for ($i = 0; $i < $count; ++$i) {
-                    $promises[] = $this->startWorker();
-                }
-                yield Promise\all($promises);
-            } catch (\Throwable $exception) {
-                $this->stop();
-                throw $exception;
+        try {
+            $promises = [];
+            for ($i = 0; $i < $count; ++$i) {
+                $promises[] = $this->startWorker();
             }
-        });
+            await($promises);
+        } catch (\Throwable $exception) {
+            $this->stop();
+            throw $exception;
+        }
     }
 
     private function startWorker(): Promise
     {
-        return call(function (): \Generator {
+        return async(function (): void {
             if (Parallel::isSupported()) {
                 $context = new Parallel($this->script);
             } else {
                 $context = new Process($this->script);
             }
 
-            yield $context->start();
+            $context->start();
 
             $id = $this->nextId++;
 
             if ($this->hub !== null) {
                 $key = $this->hub->generateKey($id, self::KEY_LENGTH);
 
-                yield $context->send($key);
+                $context->send($key);
 
                 try {
-                    $socket = yield $this->hub->accept($id);
+                    $socket = $this->hub->accept($id);
                 } catch (\Throwable $exception) {
                     if ($context->isRunning()) {
                         $context->kill();
@@ -168,18 +161,18 @@ final class Watcher
             );
 
             if ($context instanceof Process) {
-                $stdout = call(function () use ($context): \Generator {
+                $stdout = async(function () use ($context): void {
                     $stream = $context->getStdout();
                     $stream->unreference();
-                    while (null !== $chunk = yield $stream->read()) {
+                    while (null !== $chunk = $stream->read()) {
                         $this->logger->info(\sprintf('STDOUT from PID %d: %s', $context->getPid(), $chunk));
                     }
                 });
 
-                $stderr = call(function () use ($context): \Generator {
+                $stderr = async(function () use ($context): void {
                     $stream = $context->getStderr();
                     $stream->unreference();
-                    while (null !== $chunk = yield $stream->read()) {
+                    while (null !== $chunk = $stream->read()) {
                         $this->logger->error(\sprintf('STDERR from PID %d: %s', $context->getPid(), $chunk));
                     }
                 });
@@ -191,10 +184,10 @@ final class Watcher
 
             $runner = $worker->run();
 
-            $promise = call(function () use ($worker, $context, $id, $runner, $promise) {
+            $promise = async(function () use ($worker, $context, $id, $runner, $promise) {
                 try {
                     try {
-                        yield $runner; // Wait for worker to exit.
+                        await($runner); // Wait for worker to exit.
                         $this->logger->info("Worker {$id} terminated cleanly" .
                             ($this->running ? ", restarting..." : ""));
                     } catch (ChannelException $exception) {
@@ -215,11 +208,11 @@ final class Watcher
                     }
 
                     if ($this->running) {
-                        yield $this->startWorker();
+                        await($this->startWorker());
                     }
 
                     // Wait for the STDIO streams to be consumed and closed.
-                    yield $promise;
+                    await($promise);
                 } catch (\Throwable $exception) {
                     $this->stop();
                     throw $exception;
@@ -228,7 +221,7 @@ final class Watcher
 
             if (!$this->running) {
                 // Cluster stopped while worker was starting, so immediately shutdown the worker.
-                yield $worker->shutdown();
+                $worker->shutdown();
                 return;
             }
 
@@ -239,49 +232,42 @@ final class Watcher
     /**
      * Returns a promise that is succeeds when the cluster has stopped or fails if a worker cannot be restarted or
      * if stopping the cluster fails.
-     *
-     * @return Promise
      */
-    public function join(): Promise
+    public function join(): void
     {
         if (!$this->deferred) {
             throw new \Error("The cluster has not been started");
         }
 
-        return $this->deferred->promise();
+        await($this->deferred->promise());
     }
 
-    /**
-     * @return Promise
-     */
-    public function restart(): Promise
+    public function restart(): void
     {
-        return call(function (): \Generator {
-            $promises = [];
-            foreach (clone $this->workers as $worker) {
-                \assert($worker instanceof Internal\IpcParent);
-                [$context, $promise] = $this->workers[$worker];
-                \assert($context instanceof Context);
+        $promises = [];
+        foreach (clone $this->workers as $worker) {
+            \assert($worker instanceof Internal\IpcParent);
+            [$context, $promise] = $this->workers[$worker];
+            \assert($context instanceof Context);
 
-                $promises[] = call(function () use ($worker, $context, $promise): \Generator {
-                    try {
-                        yield $worker->shutdown();
-                        yield Promise\timeout($promise, self::WORKER_TIMEOUT);
-                    } finally {
-                        if ($context->isRunning()) {
-                            $context->kill();
-                        }
+            $promises[] = async(function () use ($worker, $context, $promise): \Generator {
+                try {
+                    $worker->shutdown();
+                    await(Promise\timeout($promise, self::WORKER_TIMEOUT));
+                } finally {
+                    if ($context->isRunning()) {
+                        $context->kill();
                     }
-                });
-            }
+                }
+            });
+        }
 
-            try {
-                yield Promise\all($promises);
-            } catch (\Throwable $exception) {
-                $this->stop();
-                throw $exception;
-            }
-        });
+        try {
+            await($promises);
+        } catch (\Throwable $exception) {
+            $this->stop();
+            throw $exception;
+        }
     }
 
     /**
@@ -295,17 +281,17 @@ final class Watcher
 
         $this->running = false;
 
-        $promise = call(function (): \Generator {
+        $promise = async(function (): void {
             $promises = [];
             foreach (clone $this->workers as $worker) {
                 \assert($worker instanceof Internal\IpcParent);
-                $promises[] = call(function () use ($worker): \Generator {
+                $promises[] = async(function () use ($worker): void {
                     [$context, $promise] = $this->workers[$worker];
                     \assert($context instanceof Context);
 
                     try {
-                        yield $worker->shutdown();
-                        yield Promise\timeout($promise, self::WORKER_TIMEOUT);
+                        $worker->shutdown();
+                        await(Promise\timeout($promise, self::WORKER_TIMEOUT));
                     } catch (ContextException $exception) {
                         // Ignore if the worker has already died unexpectedly.
                     } finally {
@@ -320,7 +306,7 @@ final class Watcher
                 \fclose($socket);
             }
 
-            [$exceptions] = yield Promise\any($promises);
+            [$exceptions] = await(Promise\any($promises));
 
             $this->workers = new \SplObjectStorage;
 
@@ -401,7 +387,7 @@ final class Watcher
     private function handleMessage(string $event, $data): void
     {
         foreach ($this->onMessage[$event] ?? [] as $callback) {
-            asyncCall($callback, $data);
+            defer($callback, $data);
         }
     }
 }

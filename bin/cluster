@@ -10,6 +10,7 @@ use Amp\Loop;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
+use function Amp\asyncCallable;
 use function Amp\Cluster\countCpuCores;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
@@ -124,7 +125,6 @@ foreach ($args as $arg) {
 $arguments = new League\CLImate\Argument\Manager;
 $arguments->add($args);
 
-Loop::run(static function () use ($argc, $argv, $flags, $arguments): \Generator {
     try {
         $workerArguments = [];
 
@@ -182,7 +182,7 @@ Loop::run(static function () use ($argc, $argv, $flags, $arguments): \Generator 
 
         $path = \str_replace('*', \getmypid(), $arguments->get("file"));
 
-        $logHandler = new StreamHandler(yield File\open($path, "a"), $level);
+        $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
         $formatter = new LineFormatter;
     } else {
         $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
@@ -214,7 +214,14 @@ Loop::run(static function () use ($argc, $argv, $flags, $arguments): \Generator 
     $watcher = new Watcher($workerArguments, $logger);
 
     try {
-        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use (
+        $signals = [
+            'SIGINT' => \defined('SIGINT') ? \SIGINT : 2,
+            'SIGQUIT' => \defined('SIGQUIT') ? \SIGQUIT : 3,
+            'SIGTERM' => \defined('SIGTERM') ? \SIGTERM : 15,
+            'SIGSTOP' => \defined('SIGSTOP') ? \SIGSTOP : 19,
+        ];
+
+        $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
             $watcher,
             $logger
         ): void {
@@ -222,29 +229,30 @@ Loop::run(static function () use ($argc, $argv, $flags, $arguments): \Generator 
 
             $logger->info(\sprintf('Stopping cluster due to received signal: %s (%d)', $signalName, $signalNumber));
             $watcher->stop();
-        };
+        });
 
-        Loop::unreference(Loop::onSignal(\defined('SIGINT') ? \SIGINT : 2, $signalHandler, 'SIGINT'));
-        Loop::unreference(Loop::onSignal(\defined('SIGTERM') ? \SIGTERM : 15, $signalHandler, 'SIGTERM'));
+        \array_walk(
+            $signals,
+            fn(int $signo, string $name) => Loop::unreference(Loop::onSignal($signo, $signalHandler, $name))
+        );
 
-        $signalHandler = function (string $watcherId, int $signalNumber, string $signalName) use (
+        $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
             $watcher,
             $logger
-        ): \Generator {
+        ): void {
             Loop::disable($watcherId);
 
             $logger->info(\sprintf('Restarting cluster due to received signal: %s (%d)', $signalName, $signalNumber));
-            yield $watcher->restart();
+            $watcher->restart();
 
             Loop::enable($watcherId);
-        };
+        });
 
         Loop::unreference(Loop::onSignal(\defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler, 'SIGUSR1'));
     } catch (Loop\UnsupportedFeatureException $e) {
         // ignore if extensions are missing or OS is Windows
     }
 
-    yield $watcher->start($workers);
+    $watcher->start($workers);
 
-    yield $watcher->join();
-});
+    $watcher->join();

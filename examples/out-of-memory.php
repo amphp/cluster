@@ -13,33 +13,32 @@ use Monolog\Logger;
 // The single cluster worker started will allocate more memory every 1000 ms until failing due to
 // exceeding the configured limit. The cluster watcher will automatically restart the process.
 
-Loop::run(static function () {
-    $id = Cluster::getId();
+$id = Cluster::getId();
 
-    // Creating a log handler in this way allows the script to be run in a cluster or standalone.
-    if (Cluster::isWorker()) {
-        $handler = Cluster::createLogHandler();
-    } else {
-        $handler = new StreamHandler(ByteStream\getStdout());
-        $handler->setFormatter(new ConsoleFormatter);
-    }
+// Creating a log handler in this way allows the script to be run in a cluster or standalone.
+if (Cluster::isWorker()) {
+    $handler = Cluster::createLogHandler();
+} else {
+    $handler = new StreamHandler(ByteStream\getStdout());
+    $handler->setFormatter(new ConsoleFormatter);
+}
 
-    $logger = new Logger('worker-' . $id);
-    $logger->pushHandler($handler);
+$logger = new Logger('worker-' . $id);
+$logger->pushHandler($handler);
 
-    $buffer = "";
-    $character = "🍺";
+$buffer = "";
+$character = "🍺";
 
-    $watcher = Loop::repeat(1000, static function () use (&$buffer, $character, $logger, $id): void {
-        $allocationSize = \random_int(2 ** 20, 2 ** 24);
-        $buffer .= \str_repeat($character, $allocationSize);
-        $logger->info(\sprintf("Worker ID %d is now using %d bytes of memory", $id, \memory_get_usage(true)));
-    });
-
-    $logger->info(\sprintf("Worker %d started", $id));
-
-    Cluster::onTerminate(static function () use ($logger, $watcher): void {
-        $logger->info("Received termination request");
-        Loop::cancel($watcher);
-    });
+$watcher = Loop::repeat(1000, static function () use (&$buffer, $character, $logger, $id): void {
+    $allocationSize = \random_int(2 ** 20, 2 ** 24);
+    $buffer .= \str_repeat($character, $allocationSize);
+    $logger->info(\sprintf("Worker ID %d is now using %d bytes of memory", $id, \memory_get_usage(true)));
 });
+
+$logger->info(\sprintf("Worker %d started", $id));
+
+Cluster::awaitTermination();
+
+$logger->info("Received termination request");
+
+Loop::cancel($watcher);

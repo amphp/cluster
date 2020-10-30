@@ -5,12 +5,13 @@ namespace Amp\Cluster\Internal;
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
 use Amp\Parallel\Sync\Channel;
-use Amp\Promise;
 use Amp\Socket;
 use Amp\Socket\ResourceSocket;
 use Amp\TimeoutCancellationToken;
+use function Amp\async;
+use function Amp\await;
 
-return static function (Channel $channel) use ($argc, $argv) {
+return static function (Channel $channel) use ($argc, $argv): void {
     // Remove this scripts path from process arguments.
     --$argc;
     \array_shift($argv);
@@ -27,23 +28,18 @@ return static function (Channel $channel) use ($argc, $argv) {
 
     if ($uri !== Watcher::EMPTY_URI) {
         // Read random key from process channel and send back to parent over transfer socket to authenticate.
-        $key = yield $channel->receive();
+        $key = $channel->receive();
 
         try {
-            $transferSocket = yield Socket\connect($uri, null, new TimeoutCancellationToken(Watcher::WORKER_TIMEOUT));
+            $transferSocket = Socket\connect($uri, null, new TimeoutCancellationToken(Watcher::WORKER_TIMEOUT));
         } catch (\Throwable $exception) {
             throw new \RuntimeException("Could not connect to IPC socket", 0, $exception);
         }
 
         \assert($transferSocket instanceof ResourceSocket);
 
-        yield $transferSocket->write($key);
+        $transferSocket->write($key);
     }
-
-    $promise = (static function () use ($channel, $transferSocket): Promise {
-        /** @noinspection PhpUndefinedClassInspection */
-        return static::run($channel, $transferSocket);
-    })->bindTo(null, Cluster::class)();
 
     if (!isset($argv[0])) {
         throw new \Error("No script path given");
@@ -53,11 +49,18 @@ return static function (Channel $channel) use ($argc, $argv) {
         throw new \Error(\sprintf("No script found at '%s' (be sure to provide the full path to the script)", $argv[0]));
     }
 
+    $promises = [];
+
+    $promises[] = async((static function () use ($channel, $transferSocket): void {
+        /** @noinspection PhpUndefinedClassInspection */
+        static::run($channel, $transferSocket);
+    })->bindTo(null, Cluster::class));
+
     // Protect current scope by requiring script within another function.
-    (static function () use ($argc, $argv): void { // Using $argc so it is available to the required script.
+    $promises[] = async(static function () use ($argc, $argv): void { // Using $argc so it is available to the required script.
         /** @noinspection PhpIncludeInspection */
         require $argv[0];
-    })();
+    });
 
-    return yield $promise;
+    await($promises);
 };
