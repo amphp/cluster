@@ -125,134 +125,134 @@ foreach ($args as $arg) {
 $arguments = new League\CLImate\Argument\Manager;
 $arguments->add($args);
 
-    try {
-        $workerArguments = [];
+try {
+    $workerArguments = [];
 
-        for ($i = 1; $i < $argc; $i++) {
-            if ($argv[$i] === '--') {
-                $workerArguments = \array_slice($argv, $i + 1);
-                $argv = \array_slice($argv, 0, $i);
-                break;
+    for ($i = 1; $i < $argc; $i++) {
+        if ($argv[$i] === '--') {
+            $workerArguments = \array_slice($argv, $i + 1);
+            $argv = \array_slice($argv, 0, $i);
+            break;
+        }
+
+        if (isset($flags[$argv[$i]])) {
+            if (!$flags[$argv[$i]]) {
+                $i++;
             }
-
-            if (isset($flags[$argv[$i]])) {
-                if (!$flags[$argv[$i]]) {
-                    $i++;
-                }
-            } elseif ($argv[0] === "-") {
-                throw new Exception("Unknown command line option: {$argv[$i]}");
-            }
+        } elseif ($argv[0] === "-") {
+            throw new Exception("Unknown command line option: {$argv[$i]}");
         }
+    }
 
-        $arguments->parse($argv);
+    $arguments->parse($argv);
 
-        if ($arguments->defined("help", $argv)) {
-            echo HELP;
-            exit(0);
-        }
-
-        if ($arguments->get("script") === null) {
-            throw new Exception("Script path is required");
-        }
-    } catch (Exception $e) {
-        echo "Invalid arguments: " . $e->getMessage() . PHP_EOL . PHP_EOL;
+    if ($arguments->defined("help", $argv)) {
         echo HELP;
-        exit(1);
+        exit(0);
     }
 
-    // some command line SAPIs (e.g. phpdbg) don't have that function
-    if (\function_exists("cli_set_process_title")) {
-        @\cli_set_process_title($arguments->get("name"));
+    if ($arguments->get("script") === null) {
+        throw new Exception("Script path is required");
+    }
+} catch (Exception $e) {
+    echo "Invalid arguments: " . $e->getMessage() . PHP_EOL . PHP_EOL;
+    echo HELP;
+    exit(1);
+}
+
+// some command line SAPIs (e.g. phpdbg) don't have that function
+if (\function_exists("cli_set_process_title")) {
+    @\cli_set_process_title($arguments->get("name"));
+}
+
+if ($arguments->defined("pid-file")) {
+    \file_put_contents($arguments->get("pid-file"), \getmypid());
+    $pidFilePath = \realpath($arguments->get("pid-file"));
+    \register_shutdown_function(static function () use ($pidFilePath) {
+        @\unlink($pidFilePath);
+    });
+}
+
+$level = $arguments->get("log");
+
+if ($arguments->defined("file", $argv)) {
+    if (!\interface_exists(File\Driver::class)) {
+        throw new Exception("amphp/file must be installed to log to a file");
     }
 
-    if ($arguments->defined("pid-file")) {
-        \file_put_contents($arguments->get("pid-file"), \getmypid());
-        $pidFilePath = \realpath($arguments->get("pid-file"));
-        \register_shutdown_function(static function () use ($pidFilePath) {
-            @\unlink($pidFilePath);
-        });
-    }
+    $path = \str_replace('*', \getmypid(), $arguments->get("file"));
 
-    $level = $arguments->get("log");
+    $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
+    $formatter = new LineFormatter;
+} else {
+    $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
+    $formatter = new ConsoleFormatter;
+}
 
-    if ($arguments->defined("file", $argv)) {
-        if (!\interface_exists(File\Driver::class)) {
-            throw new Exception("amphp/file must be installed to log to a file");
-        }
+$formatter->allowInlineLineBreaks(true);
+$logHandler->setFormatter($formatter);
 
-        $path = \str_replace('*', \getmypid(), $arguments->get("file"));
+$logger = new Logger("cluster-" . \getmypid());
+$logger->pushHandler($logHandler);
 
-        $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
-        $formatter = new LineFormatter;
-    } else {
-        $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
-        $formatter = new ConsoleFormatter;
-    }
+$workers = $arguments->get("workers");
 
-    $formatter->allowInlineLineBreaks(true);
-    $logHandler->setFormatter($formatter);
+$script = $arguments->get("script");
 
-    $logger = new Logger("cluster-" . \getmypid());
-    $logger->pushHandler($logHandler);
+if (!\is_file($script)) {
+    echo "Error: Could not find script at path " . $script . PHP_EOL . PHP_EOL;
+    exit(1);
+}
 
-    $workers = $arguments->get("workers");
+$logger->info("Starting cluster PID " . \getmypid() . " with " . $workers . " workers");
 
-    $script = $arguments->get("script");
+if (isset($pidFilePath)) {
+    $logger->info("Wrote PID file to " . $pidFilePath);
+}
 
-    if (!\is_file($script)) {
-        echo "Error: Could not find script at path " . $script . PHP_EOL . PHP_EOL;
-        exit(1);
-    }
+\array_unshift($workerArguments, $arguments->get("script"));
+$watcher = new Watcher($workerArguments, $logger);
 
-    $logger->info("Starting cluster PID " . \getmypid() . " with " . $workers . " workers");
+try {
+    $signals = [
+        'SIGINT' => \defined('SIGINT') ? \SIGINT : 2,
+        'SIGQUIT' => \defined('SIGQUIT') ? \SIGQUIT : 3,
+        'SIGTERM' => \defined('SIGTERM') ? \SIGTERM : 15,
+        'SIGSTOP' => \defined('SIGSTOP') ? \SIGSTOP : 19,
+    ];
 
-    if (isset($pidFilePath)) {
-        $logger->info("Wrote PID file to " . $pidFilePath);
-    }
+    $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
+        $watcher,
+        $logger
+    ): void {
+        Loop::cancel($watcherId);
 
-    \array_unshift($workerArguments, $arguments->get("script"));
-    $watcher = new Watcher($workerArguments, $logger);
+        $logger->info(\sprintf('Stopping cluster due to received signal: %s (%d)', $signalName, $signalNumber));
+        $watcher->stop();
+    });
 
-    try {
-        $signals = [
-            'SIGINT' => \defined('SIGINT') ? \SIGINT : 2,
-            'SIGQUIT' => \defined('SIGQUIT') ? \SIGQUIT : 3,
-            'SIGTERM' => \defined('SIGTERM') ? \SIGTERM : 15,
-            'SIGSTOP' => \defined('SIGSTOP') ? \SIGSTOP : 19,
-        ];
+    \array_walk(
+        $signals,
+        fn(int $signo, string $name) => Loop::unreference(Loop::onSignal($signo, $signalHandler, $name))
+    );
 
-        $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
-            $watcher,
-            $logger
-        ): void {
-            Loop::cancel($watcherId);
+    $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
+        $watcher,
+        $logger
+    ): void {
+        Loop::disable($watcherId);
 
-            $logger->info(\sprintf('Stopping cluster due to received signal: %s (%d)', $signalName, $signalNumber));
-            $watcher->stop();
-        });
+        $logger->info(\sprintf('Restarting cluster due to received signal: %s (%d)', $signalName, $signalNumber));
+        $watcher->restart();
 
-        \array_walk(
-            $signals,
-            fn(int $signo, string $name) => Loop::unreference(Loop::onSignal($signo, $signalHandler, $name))
-        );
+        Loop::enable($watcherId);
+    });
 
-        $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
-            $watcher,
-            $logger
-        ): void {
-            Loop::disable($watcherId);
+    Loop::unreference(Loop::onSignal(\defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler, 'SIGUSR1'));
+} catch (Loop\UnsupportedFeatureException $e) {
+    // ignore if extensions are missing or OS is Windows
+}
 
-            $logger->info(\sprintf('Restarting cluster due to received signal: %s (%d)', $signalName, $signalNumber));
-            $watcher->restart();
+$watcher->start($workers);
 
-            Loop::enable($watcherId);
-        });
-
-        Loop::unreference(Loop::onSignal(\defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler, 'SIGUSR1'));
-    } catch (Loop\UnsupportedFeatureException $e) {
-        // ignore if extensions are missing or OS is Windows
-    }
-
-    $watcher->start($workers);
-
-    $watcher->join();
+$watcher->join();
