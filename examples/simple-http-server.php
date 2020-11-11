@@ -6,10 +6,10 @@ require \dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
+use Amp\Http\Server\HttpServer;
 use Amp\Http\Server\Request;
 use Amp\Http\Server\RequestHandler\CallableRequestHandler;
 use Amp\Http\Server\Response;
-use Amp\Http\Server\Server;
 use Amp\Http\Status;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
@@ -37,7 +37,7 @@ $logger = new Logger('worker-' . Cluster::getId());
 $logger->pushHandler($handler);
 
 // Set up a simple request handler.
-$server = new Server($sockets, new CallableRequestHandler(function (Request $request): Response {
+$server = new HttpServer($sockets, new CallableRequestHandler(function (Request $request): Response {
     return new Response(Status::OK, [
         "content-type" => "text/plain; charset=utf-8"
     ], "Hello, World!");
@@ -47,8 +47,6 @@ $server = new Server($sockets, new CallableRequestHandler(function (Request $req
 $server->start();
 
 // Stop the server when the worker is terminated.
-//Cluster::onTerminate(fn() => $server->stop());
-
 Cluster::awaitTermination();
 
 $server->stop();
