@@ -40,12 +40,11 @@
         "psr/log": "^1"
     },
     "require-dev": {
-        "amphp/file": "^1 || ^0.3",
+        "amphp/file": "^2",
         "amphp/http-server": "^2-RC",
         "amphp/phpunit-util": "^1.1",
         "amphp/php-cs-fixer-config": "dev-master",
-        "phpunit/phpunit": "^8 || ^7",
-        "infection/infection": "^0.7.1"
+        "phpunit/phpunit": "^8 || ^7"
     },
     "autoload": {
         "psr-4": {
@@ -65,7 +64,7 @@
         "amphp/file": "Required for logging to a file"
     },
     "conflict": {
-        "amphp/file": "<0.2 || >=2"
+        "amphp/file": "<2 || >=3"
     },
     "bin": [
         "bin/cluster"
