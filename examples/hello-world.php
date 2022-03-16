@@ -6,13 +6,14 @@ use Amp\ByteStream;
 use Amp\Cluster\Cluster;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
+use Amp\Socket\InternetAddress;
 use Monolog\Logger;
-use function Amp\defer;
+use function Amp\async;
 
 // Run using bin/cluster examples/hello-world.php
 // Then connect using nc localhost 1337 multiple times to see the PID of the accepting process change.
 
-$server = Cluster::listen("127.0.0.1:1337");
+$server = Cluster::listen(new InternetAddress("127.0.0.1", 1337));
 
 $id = Cluster::getId();
 
@@ -29,7 +30,7 @@ $logger->pushHandler($handler);
 
 $logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $id));
 
-defer(static function () use ($server, $logger): void {
+async(static function () use ($server, $logger): void {
     Cluster::awaitTermination();
     $logger->info("Received termination request");
     $server->close();
@@ -37,5 +38,7 @@ defer(static function () use ($server, $logger): void {
 
 while ($client = $server->accept()) {
     $logger->info(\sprintf("Accepted client on %s in PID %d", $server->getAddress(), $id));
-    $client->end(\sprintf("Hello from worker ID %d!\n", $id));
+
+    $client->write(\sprintf("Hello from worker ID %d!\n", $id));
+    $client->end();
 }

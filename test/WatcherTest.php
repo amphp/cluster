@@ -3,14 +3,13 @@
 namespace Amp\Cluster\Test;
 
 use Amp\Cluster\Watcher;
-use Amp\Delayed;
 use Amp\PHPUnit\AsyncTestCase;
 use Monolog\Logger;
+use function Amp\delay;
 
 class WatcherTest extends AsyncTestCase
 {
-    /** @var Logger */
-    private $logger;
+    private Logger $logger;
 
     public function setUp(): void
     {
@@ -18,7 +17,7 @@ class WatcherTest extends AsyncTestCase
         $this->logger = new Logger('test-logger');
     }
 
-    public function testDoubleStart(): \Generator
+    public function testDoubleStart(): void
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
@@ -26,14 +25,14 @@ class WatcherTest extends AsyncTestCase
         $this->expectExceptionMessage('The cluster is already running or has already run');
 
         try {
-            yield $watcher->start(1);
-            yield $watcher->start(1);
+            $watcher->start(1);
+            $watcher->start(1);
         } finally {
             $watcher->stop();
         }
     }
 
-    public function testInvalidWorkerCount(): \Generator
+    public function testInvalidWorkerCount(): void
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
@@ -41,13 +40,13 @@ class WatcherTest extends AsyncTestCase
         $this->expectExceptionMessage('The number of workers must be greater than zero');
 
         try {
-            yield $watcher->start(-1);
+            $watcher->start(-1);
         } finally {
             $watcher->stop();
         }
     }
 
-    public function testReceivingMessage(): \Generator
+    public function testReceivingMessage(): void
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
@@ -58,15 +57,15 @@ class WatcherTest extends AsyncTestCase
         });
 
         try {
-            yield $watcher->start(1);
-            yield new Delayed(100); // Give worker time to start and send message.
+            $watcher->start(1);
+            delay(0.1); // Give worker time to start and send message.
             $this->assertTrue($invoked);
         } finally {
             $watcher->stop();
         }
     }
 
-    public function testRestart(): \Generator
+    public function testRestart(): void
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
@@ -77,12 +76,12 @@ class WatcherTest extends AsyncTestCase
         });
 
         try {
-            yield $watcher->start(1);
-            yield new Delayed(100); // Give worker time to start and send message.
+            $watcher->start(1);
+            delay(0.1); // Give worker time to start and send message.
             $this->assertSame(1, $invoked);
 
-            yield $watcher->restart();
-            yield new Delayed(100); // Give worker time to start and send message.
+            $watcher->restart();
+            delay(0.1); // Give worker time to start and send message.
             $this->assertSame(2, $invoked);
         } finally {
             $watcher->stop();

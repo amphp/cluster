@@ -2,11 +2,10 @@
 
 namespace Amp\Cluster\Internal;
 
-use Amp\Deferred;
-use Amp\Loop;
-use Amp\Parallel\Sync\Channel;
+use Amp\DeferredFuture;
 use Amp\Socket\ResourceSocket;
-use function Amp\await;
+use Amp\Sync\Channel;
+use Revolt\EventLoop;
 
 /** @internal */
 final class IpcClient
@@ -36,40 +35,41 @@ final class IpcClient
             return;
         }
 
-        $this->importWatcher = Loop::onReadable($socket->getResource(), static function (string $watcher, $socket) use (
-            $pendingResponses
-        ): void {
-            if ($pendingResponses->isEmpty()) {
-                throw new \RuntimeException("Unexpected import-socket message.");
-            }
+        $this->importWatcher = EventLoop::onReadable($socket->getResource(),
+            static function (string $watcher, $socket) use (
+                $pendingResponses
+            ): void {
+                if ($pendingResponses->isEmpty()) {
+                    throw new \RuntimeException("Unexpected import-socket message.");
+                }
 
-            /** @var Deferred $pendingSocketImport */
-            $pendingSocketImport = $pendingResponses->shift();
+                /** @var DeferredFuture $pendingSocketImport */
+                $pendingSocketImport = $pendingResponses->shift();
 
-            $socket = \socket_import_stream($socket);
-            $data = ["controllen" => \socket_cmsg_space(SOL_SOCKET, SCM_RIGHTS) + 4]; // 4 == sizeof(int)
+                $socket = \socket_import_stream($socket);
+                $data = ["controllen" => \socket_cmsg_space(SOL_SOCKET, SCM_RIGHTS) + 4]; // 4 == sizeof(int)
 
-            \error_clear_last();
-            if (!@\socket_recvmsg($socket, $data)) {
-                $error = \error_get_last()["message"] ?? "Unknown error";
-                $pendingSocketImport->fail(new \RuntimeException("Could not transfer socket: " . $error));
-            } else {
-                $socket = $data["control"][0]["data"][0];
-                $pendingSocketImport->resolve($socket);
-            }
+                \error_clear_last();
+                if (!@\socket_recvmsg($socket, $data)) {
+                    $error = \error_get_last()["message"] ?? "Unknown error";
+                    $pendingSocketImport->error(new \RuntimeException("Could not transfer socket: " . $error));
+                } else {
+                    $socket = $data["control"][0]["data"][0];
+                    $pendingSocketImport->complete($socket);
+                }
 
-            if ($pendingResponses->isEmpty()) {
-                Loop::disable($watcher);
-            }
-        });
+                if ($pendingResponses->isEmpty()) {
+                    EventLoop::disable($watcher);
+                }
+            });
 
-        Loop::disable($this->importWatcher);
+        EventLoop::disable($this->importWatcher);
     }
 
     public function __destruct()
     {
         if ($this->importWatcher !== null) {
-            Loop::cancel($this->importWatcher);
+            EventLoop::cancel($this->importWatcher);
         }
     }
 
@@ -97,7 +97,7 @@ final class IpcClient
 
             case self::TYPE_IMPORT_SOCKET:
                 \assert(\count($message) === 1);
-                Loop::enable($this->importWatcher);
+                EventLoop::enable($this->importWatcher);
                 break;
 
             case self::TYPE_SELECT_PORT:
@@ -125,22 +125,22 @@ final class IpcClient
 
     public function importSocket(string $uri)
     {
-        $deferred = new Deferred;
+        $deferred = new DeferredFuture;
         $this->pendingResponses->push($deferred);
 
         $this->channel->send([self::TYPE_IMPORT_SOCKET, $uri]);
 
-        return await($deferred->promise());
+        return $deferred->getFuture()->await();
     }
 
     public function selectPort(string $uri): string
     {
-        $deferred = new Deferred;
+        $deferred = new DeferredFuture;
         $this->pendingResponses->push($deferred);
 
         $this->channel->send([self::TYPE_SELECT_PORT, $uri]);
 
-        return await($deferred->promise());
+        return $deferred->getFuture()->await();
     }
 
     public function send(string $event, $data): void

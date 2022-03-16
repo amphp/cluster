@@ -2,15 +2,15 @@
 
 namespace Amp\Cluster\Test;
 
+use Amp\ByteStream\StreamChannel;
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
-use Amp\Delayed;
-use Amp\Parallel\Sync\ChannelledStream;
 use Amp\PHPUnit\AsyncTestCase;
-use Amp\Promise;
 use Amp\Socket;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
+use function Amp\async;
+use function Amp\delay;
 
 class ClusterTest extends AsyncTestCase
 {
@@ -31,22 +31,22 @@ class ClusterTest extends AsyncTestCase
         Cluster::createLogHandler();
     }
 
-    public function testCreateLogHandlerInWorker(): \Generator
+    public function testCreateLogHandlerInWorker(): void
     {
-        [$receive, $send] = Socket\createPair();
+        [$receive, $send] = Socket\createSocketPair();
 
-        $channel = new ChannelledStream($receive, $receive);
+        $channel = new StreamChannel($receive, $receive);
 
-        $promise = (function () use ($channel, $send): Promise {
-            return static::run($channel, $send);
-        })->bindTo(null, Cluster::class)();
+        $future = async((static function () use ($channel, $send): void {
+            static::run($channel, $send);
+        })->bindTo(null, Cluster::class));
 
         $handler = Cluster::createLogHandler();
 
-        $channel = new ChannelledStream($send, $send);
-        yield $channel->send(null); // Send null to terminate cluster.
+        $channel = new StreamChannel($send, $send);
+        $channel->send(null); // Send null to terminate cluster.
 
-        yield $promise;
+        $future->await();
 
         try {
             $this->assertInstanceOf(HandlerInterface::class, $handler);
@@ -56,25 +56,25 @@ class ClusterTest extends AsyncTestCase
         }
     }
 
-    public function testOnTerminate(): \Generator
+    public function testOnTerminate(): void
     {
-        [$receive, $send] = Socket\createPair();
+        [$receive, $send] = Socket\createSocketPair();
 
-        $channel = new ChannelledStream($receive, $receive);
+        $channel = new StreamChannel($receive, $receive);
 
-        $promise = (function () use ($channel, $send): Promise {
-            return static::run($channel, $send);
-        })->bindTo(null, Cluster::class)();
+        $future = async((static function () use ($channel, $send): void {
+            static::run($channel, $send);
+        })->bindTo(null, Cluster::class));
 
         $invoked = false;
         Cluster::onTerminate(function () use (&$invoked): void {
             $invoked = true;
         });
 
-        $channel = new ChannelledStream($send, $send);
-        yield $channel->send(null); // Send null to terminate cluster.
+        $channel = new StreamChannel($send, $send);
+        $channel->send(null); // Send null to terminate cluster.
 
-        yield $promise;
+        $future->await();
 
         try {
             $this->assertTrue($invoked);
@@ -84,7 +84,7 @@ class ClusterTest extends AsyncTestCase
         }
     }
 
-    public function testSelectPort(): \Generator
+    public function testSelectPort(): void
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', $this->logger);
 
@@ -96,8 +96,8 @@ class ClusterTest extends AsyncTestCase
         $count = 3;
 
         try {
-            yield $watcher->start($count);
-            yield new Delayed(100); // Give workers time to start and send message.
+            $watcher->start($count);
+            delay(0.1); // Give workers time to start and send message.
             $this->assertCount($count, $ports);
             $this->assertSame(\array_fill(0, $count, $ports[0]), $ports);
         } finally {

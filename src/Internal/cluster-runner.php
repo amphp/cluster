@@ -4,12 +4,11 @@ namespace Amp\Cluster\Internal;
 
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
-use Amp\Parallel\Sync\Channel;
 use Amp\Socket;
 use Amp\Socket\ResourceSocket;
-use Amp\TimeoutCancellationToken;
+use Amp\Sync\Channel;
+use Amp\TimeoutCancellation;
 use function Amp\async;
-use function Amp\await;
 
 return static function (Channel $channel) use ($argc, $argv): void {
     // Remove this scripts path from process arguments.
@@ -31,7 +30,7 @@ return static function (Channel $channel) use ($argc, $argv): void {
         $key = $channel->receive();
 
         try {
-            $transferSocket = Socket\connect($uri, null, new TimeoutCancellationToken(Watcher::WORKER_TIMEOUT));
+            $transferSocket = Socket\connect($uri, null, new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
         } catch (\Throwable $exception) {
             throw new \RuntimeException("Could not connect to IPC socket", 0, $exception);
         }
@@ -46,7 +45,8 @@ return static function (Channel $channel) use ($argc, $argv): void {
     }
 
     if (!\is_file($argv[0])) {
-        throw new \Error(\sprintf("No script found at '%s' (be sure to provide the full path to the script)", $argv[0]));
+        throw new \Error(\sprintf("No script found at '%s' (be sure to provide the full path to the script)",
+            $argv[0]));
     }
 
     $promises = [];
@@ -57,7 +57,10 @@ return static function (Channel $channel) use ($argc, $argv): void {
     })->bindTo(null, Cluster::class));
 
     // Protect current scope by requiring script within another function.
-    $promises[] = async(static function () use ($argc, $argv): void { // Using $argc so it is available to the required script.
+    $promises[] = async(static function () use (
+        $argc,
+        $argv
+    ): void { // Using $argc so it is available to the required script.
         /** @noinspection PhpIncludeInspection */
         require $argv[0];
     });

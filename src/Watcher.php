@@ -2,25 +2,14 @@
 
 namespace Amp\Cluster;
 
-use Amp\Deferred;
-use Amp\MultiReasonException;
 use Amp\Parallel\Context\Context;
 use Amp\Parallel\Context\ContextException;
-use Amp\Parallel\Context\Parallel;
-use Amp\Parallel\Context\Process;
-use Amp\Parallel\Sync\ChannelException;
-use Amp\Promise;
-use Amp\Success;
 use Monolog\Logger;
 use function Amp\async;
-use function Amp\asyncCall;
-use function Amp\await;
-use function Amp\call;
-use function Amp\defer;
 
 final class Watcher
 {
-    public const WORKER_TIMEOUT = 5000;
+    public const WORKER_TIMEOUT = 5;
     public const KEY_LENGTH = 32;
     public const EMPTY_URI = '~';
 

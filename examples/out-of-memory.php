@@ -6,8 +6,8 @@ use Amp\ByteStream;
 use Amp\Cluster\Cluster;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
-use Amp\Loop;
 use Monolog\Logger;
+use Revolt\EventLoop;
 
 // Run using bin/cluster -w 1 examples/out-of-memory.php
 // The single cluster worker started will allocate more memory every 1000 ms until failing due to
@@ -29,7 +29,7 @@ $logger->pushHandler($handler);
 $buffer = "";
 $character = "🍺";
 
-$watcher = Loop::repeat(1000, static function () use (&$buffer, $character, $logger, $id): void {
+$watcher = EventLoop::repeat(1000, static function () use (&$buffer, $character, $logger, $id): void {
     $allocationSize = \random_int(2 ** 20, 2 ** 24);
     $buffer .= \str_repeat($character, $allocationSize);
     $logger->info(\sprintf("Worker ID %d is now using %d bytes of memory", $id, \memory_get_usage(true)));
@@ -41,4 +41,4 @@ Cluster::awaitTermination();
 
 $logger->info("Received termination request");
 
-Loop::cancel($watcher);
+EventLoop::cancel($watcher);

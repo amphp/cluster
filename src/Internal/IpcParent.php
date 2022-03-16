@@ -2,19 +2,18 @@
 
 namespace Amp\Cluster\Internal;
 
-use Amp\Loop;
 use Amp\Parallel\Context\Context;
-use Amp\Promise;
-use Amp\Socket\Server;
+use Amp\Socket\InternetAddress;
+use Amp\Socket\ResourceSocketAddress;
 use Amp\Socket\Socket;
 use Monolog\Logger;
+use Revolt\EventLoop;
 use function Amp\async;
-use function Amp\asyncCallable;
 
 /** @internal */
 final class IpcParent
 {
-    private const PING_TIMEOUT = 10000;
+    private const PING_TIMEOUT = 10;
 
     private ?Socket $socket;
 
@@ -32,10 +31,13 @@ final class IpcParent
 
     private int $lastActivity;
 
-    public function __construct(Context $context, Logger $logger, callable $bind, callable $onData, Socket $socket = null)
-    {
-        \assert($context->isRunning(), "The context must already be running");
-
+    public function __construct(
+        Context $context,
+        Logger $logger,
+        callable $bind,
+        callable $onData,
+        Socket $socket = null
+    ) {
         $this->socket = $socket;
         $this->bind = $bind;
         $this->logger = $logger;
@@ -49,9 +51,9 @@ final class IpcParent
         $this->context->send([IpcClient::TYPE_DATA, $event, $data]);
     }
 
-    public function run(): Promise
+    public function run(): void
     {
-        $this->watcher = Loop::repeat(self::PING_TIMEOUT / 2, asyncCallable(function (): void {
+        $this->watcher = EventLoop::repeat(self::PING_TIMEOUT / 2, fn () => async(function (): void {
             if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                 $this->shutdown();
             } else {
@@ -59,29 +61,27 @@ final class IpcParent
             }
         }));
 
-        return async(function (): mixed {
-            try {
-                while (null !== $message = $this->context->receive()) {
-                    $this->lastActivity = \time();
-                    $this->handleMessage($message);
-                }
-
-                return $this->context->join();
-            } finally {
-                Loop::cancel($this->watcher);
-
-                if ($this->socket !== null) {
-                    $this->socket->close();
-                    $this->socket = null;
-                }
+        try {
+            while (null !== $message = $this->context->receive()) {
+                $this->lastActivity = \time();
+                $this->handleMessage($message);
             }
-        });
+
+            $this->context->join();
+        } finally {
+            EventLoop::cancel($this->watcher);
+
+            if ($this->socket !== null) {
+                $this->socket->close();
+                $this->socket = null;
+            }
+        }
     }
 
     public function shutdown(): void
     {
         if ($this->watcher) {
-            Loop::disable($this->watcher);
+            EventLoop::disable($this->watcher);
         }
 
         $this->context->send(null);
@@ -115,7 +115,7 @@ final class IpcParent
                 \assert(\count($message) === 2);
                 $uri = $message[1];
                 $stream = ($this->bind)($uri);
-                $uri = (new Server($stream))->getAddress(); // Work around stream_socket_get_name + IPv6
+                $uri = ResourceSocketAddress::fromLocal($stream)->toString(); // Work around stream_socket_get_name + IPv6
                 $this->context->send([IpcClient::TYPE_SELECT_PORT, $uri]);
                 break;
 

@@ -3,21 +3,19 @@
 namespace Amp\Cluster\Internal;
 
 use Amp\Cluster\Watcher;
-use Amp\Deferred;
-use Amp\Loop;
+use Amp\DeferredFuture;
 use Amp\Parallel\Context\ContextException;
-use Amp\Promise;
 use Amp\Socket\ResourceSocket;
+use Amp\TimeoutCancellation;
 use Amp\TimeoutException;
-use function Amp\async;
-use function Amp\asyncCallable;
-use function Amp\await;
+use Revolt\EventLoop;
+use const Amp\Process\IS_WINDOWS;
 
 /** @internal */
 final class WorkerHub
 {
-    private const PROCESS_START_TIMEOUT = 5000;
-    private const KEY_RECEIVE_TIMEOUT = 1000;
+    private const PROCESS_START_TIMEOUT = 5;
+    private const KEY_RECEIVE_TIMEOUT = 5;
 
     /** @var resource|null */
     private $server;
@@ -29,20 +27,18 @@ final class WorkerHub
 
     private string $watcher;
 
-    /** @var Deferred[] */
+    /** @var DeferredFuture[] */
     private array $acceptor = [];
 
     private ?string $toUnlink = null;
 
     public function __construct()
     {
-        $isWindows = \strncasecmp(\PHP_OS, "WIN", 3) === 0;
-
-        if ($isWindows) {
+        if (IS_WINDOWS) {
             $this->uri = "tcp://127.0.0.1:0";
         } else {
             $suffix = \bin2hex(\random_bytes(10));
-            $path = \sys_get_temp_dir() . "/amp-cluster-ipc-" . $suffix . ".sock";
+            $path = \sys_get_temp_dir() . "/amphp-cluster-ipc-" . $suffix . ".sock";
             $this->uri = "unix://" . $path;
             $this->toUnlink = $path;
         }
@@ -53,7 +49,7 @@ final class WorkerHub
             throw new \RuntimeException(\sprintf("Could not create IPC server: (Errno: %d) %s", $errno, $errstr));
         }
 
-        if ($isWindows) {
+        if (IS_WINDOWS) {
             $name = \stream_socket_get_name($this->server, false);
             $port = \substr($name, \strrpos($name, ":") + 1);
             $this->uri = "tcp://127.0.0.1:" . $port;
@@ -61,7 +57,7 @@ final class WorkerHub
 
         $keys = &$this->keys;
         $acceptor = &$this->acceptor;
-        $this->watcher = Loop::onReadable($this->server, asyncCallable(static function (string $watcher, $server) use (
+        $this->watcher = EventLoop::onReadable($this->server, static function (string $watcher, $server) use (
             &$keys,
             &$acceptor
         ): void {
@@ -73,39 +69,40 @@ final class WorkerHub
             $client = ResourceSocket::fromServerSocket($client);
 
             try {
-                $received = await(Promise\timeout(async(static function () use ($client): ?string {
-                    $key = "";
-                    do {
-                        if ((null === $chunk = $client->read())) {
-                            return null;
-                        }
-                        $key .= $chunk;
-                    } while (\strlen($key) < Watcher::KEY_LENGTH);
-                    return $key;
-                }), self::KEY_RECEIVE_TIMEOUT));
-            } catch (TimeoutException $exception) {
+                $timeout = new TimeoutCancellation(self::KEY_RECEIVE_TIMEOUT);
+
+                $key = "";
+                do {
+                    if (null === $chunk = $client->read($timeout, Watcher::KEY_LENGTH - \strlen($key))) {
+                        $key = null;
+                        break;
+                    }
+
+                    $key .= $chunk;
+                } while (\strlen($key) < Watcher::KEY_LENGTH);
+            } catch (TimeoutException) {
                 $client->close();
                 return; // Ignore possible foreign connection attempt.
             }
 
-            if (!\is_string($received) || !isset($keys[$received])) {
+            if (!\is_string($key) || !isset($keys[$key])) {
                 $client->close();
                 return; // Ignore possible foreign connection attempt.
             }
 
-            $pid = $keys[$received];
+            $pid = $keys[$key];
 
             $deferred = $acceptor[$pid];
-            unset($acceptor[$pid], $keys[$received]);
-            $deferred->resolve($client);
-        }));
+            unset($acceptor[$pid], $keys[$key]);
+            $deferred->complete($client);
+        });
 
-        Loop::disable($this->watcher);
+        EventLoop::disable($this->watcher);
     }
 
     public function __destruct()
     {
-        Loop::cancel($this->watcher);
+        EventLoop::cancel($this->watcher);
         \fclose($this->server);
         if ($this->toUnlink !== null) {
             @\unlink($this->toUnlink);
@@ -126,12 +123,12 @@ final class WorkerHub
 
     public function accept(int $pid): ResourceSocket
     {
-        $this->acceptor[$pid] = new Deferred;
+        $this->acceptor[$pid] = new DeferredFuture;
 
-        Loop::enable($this->watcher);
+        EventLoop::enable($this->watcher);
 
         try {
-            $socket = await(Promise\timeout($this->acceptor[$pid]->promise(), self::PROCESS_START_TIMEOUT));
+            $socket = $this->acceptor[$pid]->getFuture()->await(new TimeoutCancellation(self::PROCESS_START_TIMEOUT));
         } catch (TimeoutException $exception) {
             $key = \array_search($pid, $this->keys, true);
             \assert(\is_string($key), "Key for {$pid} not found");
@@ -139,7 +136,7 @@ final class WorkerHub
             throw new ContextException("Starting the process timed out", 0, $exception);
         } finally {
             if (empty($this->acceptor)) {
-                Loop::disable($this->watcher);
+                EventLoop::disable($this->watcher);
             }
         }
 

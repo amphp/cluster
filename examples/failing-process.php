@@ -6,8 +6,8 @@ use Amp\ByteStream;
 use Amp\Cluster\Cluster;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
-use Amp\Loop;
 use Monolog\Logger;
+use Revolt\EventLoop;
 
 // Run using bin/cluster -w 1 examples/failing-process.php
 // The single cluster worker started will fail in 1 to 5 seconds and automatically restart
@@ -28,7 +28,7 @@ $logger->pushHandler($handler);
 
 $timeout = \random_int(1, 5);
 
-$watcher = Loop::delay($timeout * 1000, function (): void {
+$watcher = EventLoop::delay($timeout, static function (): void {
     \trigger_error("Process failed", E_USER_ERROR);
     exit(1);
 });
@@ -39,4 +39,4 @@ Cluster::awaitTermination();
 
 $logger->info("Received termination request");
 
-Loop::cancel($watcher);
+EventLoop::cancel($watcher);

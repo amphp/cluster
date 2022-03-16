@@ -2,16 +2,15 @@
 
 namespace Amp\Cluster;
 
-use Amp\Deferred;
-use Amp\Loop;
-use Amp\MultiReasonException;
-use Amp\Parallel\Sync\Channel;
+use Amp\CompositeException;
+use Amp\DeferredFuture;
 use Amp\Socket;
-use Amp\Socket\Server;
+use Amp\Sync\Channel;
 use Monolog\Handler\HandlerInterface;
 use Psr\Log\LogLevel;
-use function Amp\await;
-use function Amp\defer;
+use Revolt\EventLoop;
+use Revolt\EventLoop\UnsupportedFeatureException;
+use function Amp\async;
 
 final class Cluster
 {
@@ -25,7 +24,7 @@ final class Cluster
     /** @var string[]|null */
     private static ?array $signalWatchers = null;
 
-    private static ?Deferred $deferred = null;
+    private static ?DeferredFuture $deferred = null;
 
     /**
      * @return bool
@@ -44,39 +43,41 @@ final class Cluster
     }
 
     /**
-     * @param string                  $uri
-     * @param Socket\BindContext|null $listenContext
+     * @param Socket\SocketAddress $address
+     * @param Socket\BindContext|null $bindContext
      *
-     * @return Server
+     * @return Socket\SocketServer
      */
-    public static function listen(string $uri, ?Socket\BindContext $listenContext = null): Server
-    {
+    public static function listen(
+        Socket\SocketAddress $address,
+        ?Socket\BindContext $bindContext = null
+    ): Socket\SocketServer {
         if (!self::isWorker()) {
-            return Server::listen($uri, $listenContext);
+            return Socket\listen($address, $bindContext);
         }
 
-        $listenContext = $listenContext ?? new Socket\BindContext;
+        $bindContext = $bindContext ?? new Socket\BindContext;
 
         if (canReusePort()) {
-            $position = \strrpos($uri, ":");
-            $port = $position ? (int) \substr($uri, $position) : 0;
+            $position = \strrpos($address, ":");
+            $port = $position ? (int) \substr($address, $position) : 0;
 
             if ($port === 0) {
-                $uri = self::$client->selectPort($uri);
+                $address = self::$client->selectPort($address->toString());
             }
 
-            $listenContext = $listenContext->withReusePort();
-            return Server::listen($uri, $listenContext);
+            $bindContext = $bindContext->withReusePort();
+            return Socket\listen($address, $bindContext);
         }
 
-        $socket = self::$client->importSocket($uri);
-        return self::listenOnBoundSocket($socket, $listenContext);
+        $socket = self::$client->importSocket($address);
+        return self::listenOnBoundSocket($socket, $bindContext);
     }
 
     /**
      * Attaches a callback to be invoked when a message is received from the parent process.
      *
-     * @param string   $event
+     * @param string $event
      * @param callable $callback
      */
     public static function onMessage(string $event, callable $callback): void
@@ -86,7 +87,7 @@ final class Cluster
 
     /**
      * @param string $event Event name.
-     * @param mixed  $data Send data to the parent.
+     * @param mixed $data Send data to the parent.
      */
     public static function send(string $event, $data = null): void
     {
@@ -100,7 +101,7 @@ final class Cluster
     public static function awaitTermination(): void
     {
         if (self::$deferred === null) {
-            self::$deferred = new Deferred;
+            self::$deferred = new DeferredFuture;
         }
 
         if (self::$signalWatchers === null) {
@@ -112,24 +113,24 @@ final class Cluster
             ];
 
             try {
-                self::$signalWatchers = \array_map(function (int $signo): string {
-                    $watcher = Loop::onSignal($signo, [self::class, 'stop']);
-                    Loop::unreference($watcher);
+                self::$signalWatchers = \array_map(static function (int $signo): string {
+                    $watcher = EventLoop::onSignal($signo, self::stop(...));
+                    EventLoop::unreference($watcher);
                     return $watcher;
                 }, self::$signalWatchers);
-            } catch (Loop\UnsupportedFeatureException $e) {
+            } catch (UnsupportedFeatureException $e) {
                 // ignore if extensions are missing or OS is Windows
             }
         }
 
-        await(self::$deferred->promise());
+        self::$deferred->getFuture()->await();
     }
 
     /**
      * Creates a log handler in worker processes that communicates log messages to the parent.
      *
      * @param string $logLevel Log level for the IPC handler
-     * @param bool   $bubble Bubble flag for the IPC handler
+     * @param bool $bubble Bubble flag for the IPC handler
      *
      * @return HandlerInterface
      *
@@ -139,8 +140,8 @@ final class Cluster
     {
         if (!self::isWorker()) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
-                "Create your own log handler when not running as part of a cluster." .
-                "Use " . __CLASS__ . "::isWorker() to determine if the process is running as a worker");
+                "Create your own log handler when not running as part of a cluster. " .
+                "Use " . __CLASS__ . "::isWorker() to determine if the process is running as a worker.");
         }
 
         return new Internal\IpcLogHandler(self::$client, $logLevel, $bubble);
@@ -149,13 +150,13 @@ final class Cluster
     /**
      * @noinspection PhpUnusedPrivateMethodInspection Used by rebinding a Closure to this class.
      *
-     * @param Channel                    $channel
+     * @param Channel $channel
      * @param Socket\ResourceSocket|null $socket
      */
     private static function run(Channel $channel, ?Socket\ResourceSocket $socket = null): void
     {
         self::$client = new Internal\IpcClient(
-            \Closure::fromCallable([self::class, 'handleMessage']),
+            self::handleMessage(...),
             $channel,
             $socket
         );
@@ -181,7 +182,7 @@ final class Cluster
                 throw new ClusterException("Cluster worker failed: " . $exception->getMessage(), 0, $exception);
             }
 
-            $exception = new MultiReasonException($exceptions);
+            $exception = new CompositeException($exceptions);
             $message = \implode('; ', \array_map(function (\Throwable $exception): string {
                 return $exception->getMessage();
             }, $exceptions));
@@ -200,47 +201,43 @@ final class Cluster
 
         if (self::$signalWatchers) {
             foreach (self::$signalWatchers as $watcher) {
-                Loop::cancel($watcher);
+                EventLoop::cancel($watcher);
             }
         }
 
         if (self::$deferred === null) {
-            self::$deferred = new Deferred;
+            self::$deferred = new DeferredFuture;
         }
 
-        self::$deferred->resolve();
+        self::$deferred->complete();
     }
 
     /**
      * Internal callback triggered when a message is received from the parent.
      *
      * @param string $event
-     * @param mixed  $data
+     * @param mixed $data
      */
     private static function handleMessage(string $event, $data): void
     {
         foreach (self::$onMessage[$event] ?? [] as $callback) {
-            defer($callback, $data);
+            async($callback, $data);
         }
     }
 
     /**
-     * @param resource           $socket Socket resource (not a stream socket resource).
-     * @param Socket\BindContext $listenContext
-     *
-     * @return Server
+     * @param resource $socket Socket resource (not a stream socket resource).
      */
-    private static function listenOnBoundSocket($socket, Socket\BindContext $listenContext): Server
+    private static function listenOnBoundSocket($socket, Socket\BindContext $bindContext): Socket\SocketServer
     {
-        $context = $listenContext->toStreamContextArray();
+        $context = $bindContext->toStreamContextArray();
 
         \socket_listen($socket, $context["socket"]["backlog"] ?? 0);
 
         /** @var resource $stream */
-        /** @noinspection PhpVoidFunctionResultUsedInspection */
         $stream = \socket_export_stream($socket);
         \stream_context_set_option($stream, $context); // put eventual options like ssl back (per worker)
 
-        return new Server($stream);
+        return new Socket\ResourceSocketServer($stream, $bindContext);
     }
 }
