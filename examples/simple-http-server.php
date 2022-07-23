@@ -9,6 +9,7 @@ use Amp\Cluster\Cluster;
 use Amp\Http\Server\HttpSocketServer;
 use Amp\Http\Server\RequestHandler\ClosureRequestHandler;
 use Amp\Http\Server\Response;
+use Amp\Http\Server\SocketHttpServer;
 use Amp\Http\Status;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
@@ -37,7 +38,7 @@ $logger = new Logger('worker-' . Cluster::getId());
 $logger->pushHandler($handler);
 
 // Set up a simple request handler.
-$server = new HttpSocketServer($sockets, $logger);
+$server = new SocketHttpServer($sockets, $logger);
 
 // Start the HTTP server
 $server->start(new ClosureRequestHandler(function (): Response {

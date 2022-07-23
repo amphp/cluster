@@ -3,12 +3,10 @@
 namespace Amp\Cluster\Internal;
 
 use Amp\Parallel\Context\Context;
-use Amp\Socket\InternetAddress;
-use Amp\Socket\ResourceSocketAddress;
 use Amp\Socket\Socket;
+use Amp\Socket\SocketAddress;
 use Monolog\Logger;
 use Revolt\EventLoop;
-use function Amp\async;
 
 /** @internal */
 final class IpcParent
@@ -53,13 +51,13 @@ final class IpcParent
 
     public function run(): void
     {
-        $this->watcher = EventLoop::repeat(self::PING_TIMEOUT / 2, fn () => async(function (): void {
+        $this->watcher = EventLoop::repeat(self::PING_TIMEOUT / 2, function (): void {
             if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                 $this->shutdown();
             } else {
                 $this->context->send([IpcClient::TYPE_PING]);
             }
-        }));
+        });
 
         try {
             while (null !== $message = $this->context->receive()) {
@@ -115,7 +113,7 @@ final class IpcParent
                 \assert(\count($message) === 2);
                 $uri = $message[1];
                 $stream = ($this->bind)($uri);
-                $uri = ResourceSocketAddress::fromLocal($stream)->toString(); // Work around stream_socket_get_name + IPv6
+                $uri = SocketAddress\fromResourceLocal($stream)->toString(); // Work around stream_socket_get_name + IPv6
                 $this->context->send([IpcClient::TYPE_SELECT_PORT, $uri]);
                 break;
 

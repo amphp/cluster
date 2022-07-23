@@ -34,7 +34,7 @@
         "amphp/byte-stream": "^2",
         "amphp/log": "^2",
         "amphp/parallel": "^2",
-        "amphp/socket": "dev-socket-addr as 2.0.0",
+        "amphp/socket": "^2",
         "league/climate": "^3",
         "monolog/monolog": "^2 || ^1.23",
         "psr/log": "^1"

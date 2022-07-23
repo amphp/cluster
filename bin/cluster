@@ -6,11 +6,10 @@ use Amp\Cluster\Watcher;
 use Amp\File;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
-use Amp\Loop;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
-use function Amp\asyncCallable;
+use Revolt\EventLoop;
 use function Amp\Cluster\countCpuCores;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
@@ -176,7 +175,7 @@ if ($arguments->defined("pid-file")) {
 $level = $arguments->get("log");
 
 if ($arguments->defined("file", $argv)) {
-    if (!\interface_exists(File\Driver::class)) {
+    if (!\interface_exists(File\File::class)) {
         throw new Exception("amphp/file must be installed to log to a file");
     }
 
@@ -221,35 +220,35 @@ try {
         'SIGSTOP' => \defined('SIGSTOP') ? \SIGSTOP : 19,
     ];
 
-    $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
+    $signalHandler = function (string $watcherId, int $signalNumber) use (
         $watcher,
         $logger
     ): void {
-        Loop::cancel($watcherId);
+        EventLoop::cancel($watcherId);
 
-        $logger->info(\sprintf('Stopping cluster due to received signal: %s (%d)', $signalName, $signalNumber));
+        $logger->info(\sprintf('Stopping cluster due to received signal: %d', $signalNumber));
         $watcher->stop();
-    });
+    };
 
     \array_walk(
         $signals,
-        fn(int $signo, string $name) => Loop::unreference(Loop::onSignal($signo, $signalHandler, $name))
+        fn(int $signo) => EventLoop::unreference(EventLoop::onSignal($signo, $signalHandler))
     );
 
-    $signalHandler = asyncCallable(function (string $watcherId, int $signalNumber, string $signalName) use (
+    $signalHandler = function (string $watcherId, int $signalNumber) use (
         $watcher,
         $logger
     ): void {
-        Loop::disable($watcherId);
+        EventLoop::disable($watcherId);
 
-        $logger->info(\sprintf('Restarting cluster due to received signal: %s (%d)', $signalName, $signalNumber));
+        $logger->info(\sprintf('Restarting cluster due to received signal: %d', $signalNumber));
         $watcher->restart();
 
-        Loop::enable($watcherId);
-    });
+        EventLoop::enable($watcherId);
+    };
 
-    Loop::unreference(Loop::onSignal(\defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler, 'SIGUSR1'));
-} catch (Loop\UnsupportedFeatureException $e) {
+    EventLoop::unreference(EventLoop::onSignal(\defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler));
+} catch (EventLoop\UnsupportedFeatureException $e) {
     // ignore if extensions are missing or OS is Windows
 }
 
