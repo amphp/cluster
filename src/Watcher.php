@@ -37,7 +37,7 @@ final class Watcher
 
     private \SplObjectStorage $workers;
 
-    /** @var callable[][] */
+    /** @var array<string, list<callable>> */
     private array $onMessage = [];
 
     private ?DeferredFuture $deferred = null;
@@ -342,7 +342,7 @@ final class Watcher
 
         $context = \stream_context_create([
             "socket" => [
-                "so_reuseaddr" => \stripos(PHP_OS, "WIN") === 0, // SO_REUSEADDR has SO_REUSEPORT semantics on Windows
+                "so_reuseaddr" => \stripos(\PHP_OS, "WIN") === 0, // SO_REUSEADDR has SO_REUSEPORT semantics on Windows
                 "so_reuseport" => canReusePort(),
                 "ipv6_v6only" => true,
             ],

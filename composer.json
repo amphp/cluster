@@ -40,11 +40,13 @@
         "psr/log": "^1"
     },
     "require-dev": {
+        "ext-sockets": "*",
         "amphp/file": "^3",
         "amphp/http-server": "^3",
         "amphp/phpunit-util": "^3",
         "amphp/php-cs-fixer-config": "dev-master",
-        "phpunit/phpunit": "^9"
+        "phpunit/phpunit": "^9",
+        "psalm/phar": "^4.24"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
