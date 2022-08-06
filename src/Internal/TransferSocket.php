@@ -42,7 +42,7 @@ final class TransferSocket
      */
     public function receiveSocket(): array
     {
-        $data = ["controllen" => \socket_cmsg_space(SOL_SOCKET, SCM_RIGHTS) + 4];
+        $data = ["controllen" => \socket_cmsg_space(\SOL_SOCKET, \SCM_RIGHTS) + 4];
 
         // Error checked manually if socket_sendmsg() fails.
         \set_error_handler($this->errorHandler);

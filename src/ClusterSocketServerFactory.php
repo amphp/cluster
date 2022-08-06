@@ -20,13 +20,13 @@ final class ClusterSocketServerFactory implements SocketServerFactory
     /** @var Channel<never, SocketAddress> */
     private readonly Channel $channel;
 
-    private readonly Internal\SocketTransferPipe $pipe;
+    private readonly StreamResourceTransferPipe $pipe;
 
     public function __construct(Socket $socket)
     {
         $serializer = new NativeSerializer();
         $this->channel = new StreamChannel($socket, $socket, $serializer);
-        $this->pipe = new Internal\SocketTransferPipe($socket, $serializer);
+        $this->pipe = new StreamResourceTransferPipe($socket, $serializer);
     }
 
     public function listen(SocketAddress $address, ?BindContext $bindContext = null): SocketServer

@@ -1,6 +1,6 @@
 <?php
 
-namespace Amp\Cluster\Internal;
+namespace Amp\Cluster;
 
 use Amp\ByteStream\PendingReadError;
 use Amp\Cancellation;
@@ -13,9 +13,9 @@ use Amp\Socket\SocketException;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
 
-final class SocketTransferPipe implements Closable
+final class StreamResourceTransferPipe implements Closable
 {
-    private readonly TransferSocket $transferSocket;
+    private readonly Internal\TransferSocket $transferSocket;
 
     /** @var \SplQueue<array{Suspension<null|Closure():never>, resource, string}> */
     private readonly \SplQueue $transferQueue;
@@ -31,7 +31,7 @@ final class SocketTransferPipe implements Closable
         private readonly Socket $socket,
         private readonly Serializer $serializer,
     ) {
-        $this->transferSocket = $transferSocket = new TransferSocket($socket);
+        $this->transferSocket = $transferSocket = new Internal\TransferSocket($socket);
         $this->transferQueue = $transferQueue = new \SplQueue();
 
         $streamResource = $socket->getResource();
@@ -53,8 +53,8 @@ final class SocketTransferPipe implements Closable
 
                 try {
                     if (\feof($stream)) {
-                        $suspension->resume();
                         $socket->close();
+                        $suspension->resume();
                         return;
                     }
 
@@ -143,7 +143,7 @@ final class SocketTransferPipe implements Closable
     }
 
     /**
-     * @return array{resource, mixed}|null Array of the received stream-socket resource and the data sent or null
+     * @return array{resource, mixed}|null Tuple of the received stream-socket resource and the data sent or null
      *  if the transfer pipe is closed.
      *
      * @throws SocketException

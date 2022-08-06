@@ -11,19 +11,18 @@ use Amp\Socket\ResourceSocket;
 use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 
-final class ClientTransferPipe implements Closable
+final class ClientSocketTransferPipe implements Closable
 {
-    private Internal\SocketTransferPipe $pipe;
+    private StreamResourceTransferPipe $pipe;
 
     public function __construct(
         Socket $socket,
         Serializer $serializer = new NativeSerializer(),
     ) {
-        $this->pipe = new Internal\SocketTransferPipe($socket, $serializer);
+        $this->pipe = new StreamResourceTransferPipe($socket, $serializer);
     }
 
     /**
-     * @param Cancellation|null $cancellation
      * @param positive-int $chunkSize
      *
      * @return array{Socket, mixed}|null
