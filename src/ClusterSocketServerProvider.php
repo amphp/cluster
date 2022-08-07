@@ -40,7 +40,7 @@ final class ClusterSocketServerProvider
     {
         /** @var Channel<SocketAddress, never> $channel */
         $channel = new StreamChannel($socket, $socket, $this->serializer);
-        $pipe = new StreamResourceTransferPipe($socket, $this->serializer);
+        $pipe = new StreamResourceSendPipe($socket, $this->serializer);
 
         $servers = &$this->servers;
         $bindContext = $this->bindContext;
@@ -87,7 +87,7 @@ final class ClusterSocketServerProvider
 
         try {
             // Do NOT use STREAM_SERVER_LISTEN here - we explicitly invoke \socket_listen() in our worker processes
-            if (!$server = \stream_socket_server($uri, $errno, $errstr, STREAM_SERVER_BIND, $context)) {
+            if (!$server = \stream_socket_server($uri, $errno, $errstr, \STREAM_SERVER_BIND, $context)) {
                 throw new \RuntimeException(\sprintf(
                     "Failed binding socket on %s: [Err# %s] %s",
                     $uri,

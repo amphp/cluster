@@ -34,13 +34,13 @@ final class TransferSocket
     }
 
     /**
-     * @return array{resource, string}
+     * @return array{resource, string}|null
      *
      * @throws SocketException
      *
      * @psalm-suppress InvalidArrayOffset $data array is overwritten by socket_recvmsg().
      */
-    public function receiveSocket(): array
+    public function receiveSocket(): ?array
     {
         $data = ["controllen" => \socket_cmsg_space(\SOL_SOCKET, \SCM_RIGHTS) + 4];
 
@@ -49,10 +49,14 @@ final class TransferSocket
         \socket_clear_error();
 
         try {
-            if (!\socket_recvmsg($this->socket, $data)) {
+            if (!\socket_recvmsg($this->socket, $data, \MSG_DONTWAIT)) {
                 /* Purposely omitting $this->socket from socket_last_error(),
                  * as the error will not be socket-specific. */
                 $errorCode = \socket_last_error();
+                if ($errorCode === \SOCKET_EAGAIN) {
+                    return null;
+                }
+
                 throw new SocketException(sprintf(
                     'Could not transfer socket: (%d) %s',
                     $errorCode,
@@ -100,7 +104,7 @@ final class TransferSocket
                 "control" => [
                     ["level" => \SOL_SOCKET, "type" => \SCM_RIGHTS, "data" => [$stream]],
                 ],
-            ], 0)) {
+            ], \MSG_DONTWAIT)) {
                 $errorCode = \socket_last_error($this->socket);
                 if ($errorCode === \SOCKET_EAGAIN) {
                     // Socket buffer full, try again later.

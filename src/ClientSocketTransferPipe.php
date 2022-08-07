@@ -13,13 +13,15 @@ use Amp\Socket\SocketException;
 
 final class ClientSocketTransferPipe implements Closable
 {
-    private StreamResourceTransferPipe $pipe;
+    private readonly StreamResourceReceivePipe $receive;
+    private readonly StreamResourceSendPipe $send;
 
     public function __construct(
         Socket $socket,
         Serializer $serializer = new NativeSerializer(),
     ) {
-        $this->pipe = new StreamResourceTransferPipe($socket, $serializer);
+        $this->receive = new StreamResourceReceivePipe($socket, $serializer);
+        $this->send = new StreamResourceSendPipe($socket, $serializer);
     }
 
     /**
@@ -34,7 +36,7 @@ final class ClientSocketTransferPipe implements Closable
         ?Cancellation $cancellation = null,
         int $chunkSize = ResourceSocket::DEFAULT_CHUNK_SIZE,
     ): ?array {
-        $received = $this->pipe->receive($cancellation);
+        $received = $this->receive->receive($cancellation);
         if (!$received) {
             return null;
         }
@@ -51,21 +53,21 @@ final class ClientSocketTransferPipe implements Closable
             throw new SocketException('The provided socket has already been closed');
         }
 
-        $this->pipe->send($resource, $data);
+        $this->send->send($resource, $data);
     }
 
     public function close(): void
     {
-        $this->pipe->close();
+        $this->receive->close();
     }
 
     public function isClosed(): bool
     {
-        return $this->pipe->isClosed();
+        return $this->receive->isClosed();
     }
 
     public function onClose(\Closure $onClose): void
     {
-        $this->pipe->onClose($onClose);
+        $this->receive->onClose($onClose);
     }
 }

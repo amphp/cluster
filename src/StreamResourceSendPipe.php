@@ -2,9 +2,6 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\PendingReadError;
-use Amp\Cancellation;
-use Amp\CancelledException;
 use Amp\Closable;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
@@ -13,60 +10,26 @@ use Amp\Socket\SocketException;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
 
-final class StreamResourceTransferPipe implements Closable
+final class StreamResourceSendPipe implements Closable
 {
     private readonly Internal\TransferSocket $transferSocket;
 
-    /** @var \SplQueue<array{Suspension<null|Closure():never>, resource, string}> */
-    private readonly \SplQueue $transferQueue;
-
-    private readonly string $onReadable;
+    /** @var \SplDoublyLinkedList<array{Suspension<null|Closure():never>, resource, string}> */
+    private readonly \SplDoublyLinkedList $transferQueue;
 
     private readonly string $onWritable;
-
-    /** @var Suspension<array{resource, string}|null>|null */
-    private ?Suspension $waiting = null;
 
     public function __construct(
         private readonly Socket $socket,
         private readonly Serializer $serializer,
     ) {
         $this->transferSocket = $transferSocket = new Internal\TransferSocket($socket);
-        $this->transferQueue = $transferQueue = new \SplQueue();
+        $this->transferQueue = $transferQueue = new \SplDoublyLinkedList();
 
         $streamResource = $socket->getResource();
         if (!\is_resource($streamResource)) {
             throw new SocketException('The provided socket has already been closed');
         }
-
-        $suspension = &$this->waiting;
-        $this->onReadable = $onReadable = EventLoop::disable(EventLoop::onReadable(
-            $streamResource,
-            static function (string $callbackId, $stream) use (
-                &$suspension,
-                $transferSocket,
-                $socket,
-            ): void {
-                EventLoop::disable($callbackId);
-
-                \assert($suspension instanceof Suspension);
-
-                try {
-                    if (\feof($stream)) {
-                        $socket->close();
-                        $suspension->resume();
-                        return;
-                    }
-
-                    $suspension->resume($transferSocket->receiveSocket());
-                } catch (\Throwable $exception) {
-                    $socket->close();
-                    $suspension->throw($exception);
-                } finally {
-                    $suspension = null;
-                }
-            },
-        ));
 
         $this->onWritable = $onWritable = EventLoop::disable(EventLoop::onWritable(
             $streamResource,
@@ -86,11 +49,11 @@ final class StreamResourceTransferPipe implements Closable
                      * @var resource $export
                      * @var string $data
                      */
-                    [$suspension, $export, $data] = $transferQueue->dequeue();
+                    [$suspension, $export, $data] = $transferQueue->shift();
 
                     try {
                         if (!$transferSocket->sendSocket($export, $data)) {
-                            $transferQueue->enqueue([$suspension, $export, $data]);
+                            $transferQueue->unshift([$suspension, $export, $data]);
                             return;
                         }
                     } catch (\Throwable $exception) {
@@ -106,16 +69,13 @@ final class StreamResourceTransferPipe implements Closable
             },
         ));
 
-        $this->socket->onClose(static function () use (&$suspension, $transferQueue, $onReadable, $onWritable): void {
-            EventLoop::cancel($onReadable);
+        $this->socket->onClose(static function () use ($transferQueue, $onWritable): void {
             EventLoop::cancel($onWritable);
 
-            $suspension?->throw(new SocketException('The transfer socket closed unexpectedly'));
-
             while (!$transferQueue->isEmpty()) {
-                /** @var Suspension<null|Closure():never> $pending */
-                [$pending] = $transferQueue->dequeue();
-                $pending->resume(
+                /** @var Suspension<null|Closure():never> $suspension */
+                [$suspension] = $transferQueue->dequeue();
+                $suspension->resume(
                     static fn () => throw new SocketException('The transfer socket closed unexpectedly')
                 );
             }
@@ -143,44 +103,6 @@ final class StreamResourceTransferPipe implements Closable
     }
 
     /**
-     * @return array{resource, mixed}|null Tuple of the received stream-socket resource and the data sent or null
-     *  if the transfer pipe is closed.
-     *
-     * @throws SocketException
-     * @throws SerializationException
-     */
-    public function receive(?Cancellation $cancellation = null): ?array
-    {
-        if ($this->waiting !== null) {
-            throw new PendingReadError;
-        }
-
-        $this->waiting = EventLoop::getSuspension();
-        EventLoop::enable($this->onReadable);
-
-        $id = $cancellation?->subscribe(function (CancelledException $exception): void {
-            EventLoop::disable($this->onReadable);
-            $this->waiting?->throw($exception);
-            $this->waiting = null;
-        });
-
-        try {
-            $received = $this->waiting->suspend();
-        } finally {
-            /** @psalm-suppress PossiblyNullArgument If $cancellation is not null, $id will not be null. */
-            $cancellation?->unsubscribe($id);
-        }
-
-        if (!$received) {
-            return null;
-        }
-
-        [$import, $data] = $received;
-
-        return [$import, $this->serializer->unserialize($data)];
-    }
-
-    /**
      * @param resource $stream
      *
      * @throws SocketException
@@ -193,7 +115,7 @@ final class StreamResourceTransferPipe implements Closable
         if (!$this->transferQueue->isEmpty() || !$this->transferSocket->sendSocket($stream, $serialized)) {
             /** @var Suspension<null|Closure():never> $suspension */
             $suspension = EventLoop::getSuspension();
-            $this->transferQueue->enqueue([$suspension, $stream, $serialized]);
+            $this->transferQueue->push([$suspension, $stream, $serialized]);
             EventLoop::enable($this->onWritable);
             if ($closure = $suspension->suspend()) {
                 $closure(); // Throw exception in closure for better backtrace.
