@@ -18,14 +18,15 @@ final class StreamResourceReceivePipe implements Closable
     /** @var Suspension<null|\Closure():never>|null */
     private ?Suspension $waiting = null;
 
-    private readonly \SplDoublyLinkedList $receiveQueue;
+    /** @var \SplQueue<array{resource, string}> */
+    private readonly \SplQueue $receiveQueue;
 
     public function __construct(
         private readonly Socket $socket,
         private readonly Serializer $serializer,
     ) {
         $transferSocket = new Internal\TransferSocket($socket);
-        $this->receiveQueue = $receiveQueue = new \SplDoublyLinkedList();
+        $this->receiveQueue = $receiveQueue = new \SplQueue();
 
         $streamResource = $socket->getResource();
         if (!\is_resource($streamResource)) {

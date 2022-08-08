@@ -14,8 +14,8 @@ final class StreamResourceSendPipe implements Closable
 {
     private readonly Internal\TransferSocket $transferSocket;
 
-    /** @var \SplDoublyLinkedList<array{Suspension<null|Closure():never>, resource, string}> */
-    private readonly \SplDoublyLinkedList $transferQueue;
+    /** @var \SplQueue<array{Suspension<null|Closure():never>, resource, string}> */
+    private readonly \SplQueue $transferQueue;
 
     private readonly string $onWritable;
 
@@ -24,7 +24,7 @@ final class StreamResourceSendPipe implements Closable
         private readonly Serializer $serializer,
     ) {
         $this->transferSocket = $transferSocket = new Internal\TransferSocket($socket);
-        $this->transferQueue = $transferQueue = new \SplDoublyLinkedList();
+        $this->transferQueue = $transferQueue = new \SplQueue();
 
         $streamResource = $socket->getResource();
         if (!\is_resource($streamResource)) {
