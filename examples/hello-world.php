@@ -11,11 +11,13 @@ use Monolog\Logger;
 use function Amp\async;
 
 // Run using bin/cluster examples/hello-world.php
-// Then connect using nc localhost 1337 multiple times to see the PID of the accepting process change.
+// Then connect using `nc localhost 1337` multiple times to see the PID of the accepting process change.
 
-$server = Cluster::listen(new InternetAddress("127.0.0.1", 1337));
+$socketFactory = Cluster::getSocketServerFactory();
 
-$id = Cluster::getId();
+$server = $socketFactory->listen(new InternetAddress("127.0.0.1", 1337));
+
+$id = Cluster::getContextId();
 
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {

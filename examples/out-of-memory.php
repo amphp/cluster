@@ -13,7 +13,7 @@ use Revolt\EventLoop;
 // The single cluster worker started will allocate more memory every 1000 ms until failing due to
 // exceeding the configured limit. The cluster watcher will automatically restart the process.
 
-$id = Cluster::getId();
+$id = Cluster::getContextId();
 
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {
@@ -29,7 +29,7 @@ $logger->pushHandler($handler);
 $buffer = "";
 $character = "🍺";
 
-$watcher = EventLoop::repeat(1000, static function () use (&$buffer, $character, $logger, $id): void {
+$watcher = EventLoop::repeat(1, static function () use (&$buffer, $character, $logger, $id): void {
     $allocationSize = \random_int(2 ** 20, 2 ** 24);
     $buffer .= \str_repeat($character, $allocationSize);
     $logger->info(\sprintf("Worker ID %d is now using %d bytes of memory", $id, \memory_get_usage(true)));

@@ -14,10 +14,11 @@ use Amp\Socket\SocketServer;
 use Amp\Socket\SocketServerFactory;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
+use function Amp\async;
 
 final class ClusterSocketServerFactory implements SocketServerFactory
 {
-    /** @var Channel<never, SocketAddress> */
+    /** @var Channel<never, SocketAddress|null> */
     private readonly Channel $channel;
 
     private readonly StreamResourceReceivePipe $pipe;
@@ -27,6 +28,16 @@ final class ClusterSocketServerFactory implements SocketServerFactory
         $serializer = new NativeSerializer();
         $this->channel = new StreamChannel($socket, $socket, $serializer);
         $this->pipe = new StreamResourceReceivePipe($socket, $serializer);
+    }
+
+    public function __destruct()
+    {
+        if ($this->channel->isClosed()) {
+            return;
+        }
+
+        $channel = $this->channel;
+        async(static fn () => $channel->send(null))->ignore();
     }
 
     public function listen(SocketAddress $address, ?BindContext $bindContext = null): SocketServer

@@ -3,6 +3,8 @@
 namespace Amp\Cluster;
 
 use Amp\ByteStream\StreamChannel;
+use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\Future;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\Serializer;
@@ -11,6 +13,7 @@ use Amp\Socket\Socket;
 use Amp\Socket\SocketAddress;
 use Amp\Socket\SocketException;
 use Amp\Sync\Channel;
+use Amp\Sync\ChannelException;
 use function Amp\async;
 use const Amp\Process\IS_WINDOWS;
 
@@ -36,31 +39,37 @@ final class ClusterSocketServerProvider
      *
      * @throws SocketException
      */
-    public function provideFor(Socket $socket): Future
+    public function provideFor(Socket $socket, ?Cancellation $cancellation = null): Future
     {
-        /** @var Channel<SocketAddress, never> $channel */
+        /** @var Channel<SocketAddress|null, never> $channel */
         $channel = new StreamChannel($socket, $socket, $this->serializer);
         $pipe = new StreamResourceSendPipe($socket, $this->serializer);
 
         $servers = &$this->servers;
         $bindContext = $this->bindContext;
-        return async(static function () use (&$servers, $channel, $pipe, $bindContext): void {
-            while ($address = $channel->receive()) {
-                if (!$address instanceof SocketAddress) {
-                    throw new \ValueError(
-                        'Expected only instances of %s on channel; do not use the given channel outside %s',
-                        SocketAddress::class,
-                        self::class,
-                    );
+        return async(static function () use (&$servers, $channel, $pipe, $bindContext, $cancellation): void {
+            try {
+                while ($address = $channel->receive($cancellation)) {
+                    if (!$address instanceof SocketAddress) {
+                        throw new \ValueError(
+                            'Expected only instances of %s on channel; do not use the given socket outside %s',
+                            SocketAddress::class,
+                            self::class,
+                        );
+                    }
+
+                    $uri = $address->toString();
+                    $server = $servers[$uri] ??= self::listen($uri, $bindContext);
+
+                    $pipe->send($server, $address);
                 }
-
-                $uri = $address->toString();
-                $server = $servers[$uri] ??= self::listen($uri, $bindContext);
-
-                $pipe->send($server, $address);
+            } catch (CancelledException) {
+                // Providing cancelled by $cancellation.
+            } catch (ChannelException) {
+                // Sending context closed the channel abruptly.
+            } finally {
+                $pipe->close();
             }
-
-            $pipe->close();
         });
     }
 

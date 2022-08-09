@@ -11,6 +11,7 @@ use Monolog\Logger;
 use Psr\Log\LogLevel;
 use Revolt\EventLoop;
 use function Amp\Cluster\countCpuCores;
+use function Amp\Parallel\Ipc\ipcHub;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
 if (\function_exists("cli_set_process_title")) {
@@ -210,7 +211,7 @@ if (isset($pidFilePath)) {
 }
 
 \array_unshift($workerArguments, $arguments->get("script"));
-$watcher = new Watcher($workerArguments, $logger);
+$watcher = new Watcher($workerArguments, ipcHub(), $logger);
 
 try {
     $signals = [

@@ -13,7 +13,7 @@ use Revolt\EventLoop;
 // The single cluster worker started will fail in 1 to 5 seconds and automatically restart
 // until the main process is terminated.
 
-$id = Cluster::getId();
+$id = Cluster::getContextId();
 
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {

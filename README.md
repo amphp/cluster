@@ -78,7 +78,7 @@ Amp\Loop::run(function () {
         $handler->setFormatter(new ConsoleFormatter);
     }
 
-    $logger = new Logger('worker-' . Cluster::getId());
+    $logger = new Logger('worker-' . Cluster::getContextId());
     $logger->pushHandler($handler);
 
     // Set up a simple request handler.

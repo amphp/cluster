@@ -6,7 +6,7 @@ require \dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
-use Amp\Http\Server\HttpSocketServer;
+use Amp\Http\Server\DefaultErrorHandler;
 use Amp\Http\Server\RequestHandler\ClosureRequestHandler;
 use Amp\Http\Server\Response;
 use Amp\Http\Server\SocketHttpServer;
@@ -19,13 +19,6 @@ use Monolog\Logger;
 // Run using bin/cluster examples/simple-http-server.php
 // Test using your browser by connecting to http://localhost:8080/
 
-// Create socket servers using the Cluster::listen() method to share ports across processes.
-// Cluster::listen() returns a promise, so yield the array to wait for all promises to resolve.
-$sockets = [
-    Cluster::listen(new InternetAddress("0.0.0.0", 8080)),
-    Cluster::listen(new InternetAddress("[::]", 8080)),
-];
-
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {
     $handler = Cluster::createLogHandler();
@@ -34,18 +27,24 @@ if (Cluster::isWorker()) {
     $handler->setFormatter(new ConsoleFormatter);
 }
 
-$logger = new Logger('worker-' . Cluster::getId());
+$logger = new Logger('worker-' . Cluster::getContextId());
 $logger->pushHandler($handler);
 
 // Set up a simple request handler.
-$server = new SocketHttpServer($sockets, $logger);
+$server = new SocketHttpServer($logger, socketServerFactory: Cluster::getSocketServerFactory());
+
+$server->expose(new InternetAddress("127.0.0.1", 1337));
+//$server->expose(new InternetAddress("[::]", 1337));
 
 // Start the HTTP server
-$server->start(new ClosureRequestHandler(function (): Response {
-    return new Response(Status::OK, [
-        "content-type" => "text/plain; charset=utf-8",
-    ], "Hello, World!");
-}));
+$server->start(
+    new ClosureRequestHandler(function (): Response {
+        return new Response(Status::OK, [
+            "content-type" => "text/plain; charset=utf-8",
+        ], "Hello, World!");
+    }),
+    new DefaultErrorHandler(),
+);
 
 // Stop the server when the worker is terminated.
 Cluster::awaitTermination();
