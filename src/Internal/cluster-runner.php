@@ -28,33 +28,28 @@ return static function (Channel $channel) use ($argc, $argv): void {
         ));
     }
 
-    // Read random IPC hub URI and associated key from process channel.
-    $uri = $channel->receive();
-    $key = $channel->receive();
-
     try {
-        $transferSocket = Ipc\connect($uri, $key, cancellation: new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
+        // Read random IPC hub URI and associated key from process channel.
+        ['uri' => $uri, 'key' => $key] = $channel->receive();
+
+        $transferSocket = Ipc\connect($uri, $key, new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
     } catch (\Throwable $exception) {
         throw new \RuntimeException("Could not connect to IPC socket", 0, $exception);
     }
 
-    $futures = [];
-
-    $futures[] = async((static function () use ($channel, $transferSocket): void {
-        /** @noinspection PhpUndefinedClassInspection */
-        self::run($channel, $transferSocket);
-    })->bindTo(null, Cluster::class));
-
-    // Protect current scope by requiring script within another function.
-    $futures[] = async(static function () use (
-        $argc, // Using $argc so it is available to the required script.
-        $argv
-    ): void {
-        require $argv[0];
-    });
-
     try {
-        Future\await($futures);
+        Future\await([
+            async((static function () use ($channel, $transferSocket): void {
+                /** @noinspection PhpUndefinedClassInspection */
+                self::run($channel, $transferSocket);
+            })->bindTo(null, Cluster::class)),
+
+            /* Protect current scope by requiring script within another function.
+             * Using $argc so it is available to the required script. */
+            async(static function () use ($argc, $argv): void {
+                require $argv[0];
+            }),
+        ]);
     } finally {
         $transferSocket->close();
         $channel->close();

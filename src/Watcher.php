@@ -62,9 +62,7 @@ final class Watcher
 
     public function __destruct()
     {
-        if ($this->running) {
-            $this->stop();
-        }
+        $this->stop();
     }
 
     /**
@@ -116,8 +114,10 @@ final class Watcher
 
             $key = $this->hub->generateKey();
 
-            $context->send($this->hub->getUri());
-            $context->send($key);
+            $context->send([
+                'uri' => $this->hub->getUri(),
+                'key' => $key,
+            ]);
 
             try {
                 $socket = $this->hub->accept($key);
@@ -256,48 +256,51 @@ final class Watcher
         $this->running = false;
         $this->deferredCancellation->cancel();
 
-        $future = async(function (): void {
-            $futures = [];
-            foreach (clone $this->workers as $worker) {
-                \assert($worker instanceof Internal\Worker);
-                $futures[] = async(function () use ($worker): void {
-                    [$context, $future] = $this->workers[$worker];
-                    \assert($context instanceof Context && $future instanceof Future);
+        $futures = [];
+        foreach (clone $this->workers as $worker) {
+            \assert($worker instanceof Internal\Worker);
+            $futures[] = async(function () use ($worker): void {
+                [$context, $future] = $this->workers[$worker];
+                \assert($context instanceof Context && $future instanceof Future);
 
-                    try {
-                        $worker->shutdown();
-                        $future->await(new TimeoutCancellation(self::WORKER_TIMEOUT));
-                    } catch (ContextException) {
-                        // Ignore if the worker has already died unexpectedly.
-                    } finally {
-                        if (!$context->isClosed()) {
-                            $context->close();
-                        }
-
-                        $this->workers->detach($worker);
+                try {
+                    $worker->shutdown();
+                    $future->await(new TimeoutCancellation(self::WORKER_TIMEOUT));
+                } catch (ContextException) {
+                    // Ignore if the worker has already died unexpectedly.
+                } finally {
+                    if (!$context->isClosed()) {
+                        $context->close();
                     }
-                });
-            }
 
-            [$exceptions] = Future\awaitAll($futures);
-
-            if ($count = \count($exceptions)) {
-                if ($count === 1) {
-                    $exception = \current($exceptions);
-                    throw new ClusterException("Stopping the cluster failed: " . $exception->getMessage(), 0, $exception);
+                    $this->workers->detach($worker);
                 }
+            });
+        }
 
-                $exception = new CompositeException($exceptions);
-                $message = \implode('; ', \array_map(static function (\Throwable $exception): string {
-                    return $exception->getMessage();
-                }, $exceptions));
-                throw new ClusterException("Stopping the cluster failed: " . $message, 0, $exception);
-            }
-        });
+        [$exceptions] = Future\awaitAll($futures);
 
-        $future
-            ->map($this->deferred->complete(...))
-            ->catch($this->deferred->error(...));
+        $count = \count($exceptions);
+        if (!$count) {
+            $this->deferred->complete();
+            return;
+        }
+
+        if ($count === 1) {
+            $exception = \current($exceptions);
+            $this->deferred->error(new ClusterException(
+                "Stopping the cluster failed: " . $exception->getMessage(),
+                0,
+                $exception,
+            ));
+            return;
+        }
+
+        $exception = new CompositeException($exceptions);
+        $message = \implode('; ', \array_map(static function (\Throwable $exception): string {
+            return $exception->getMessage();
+        }, $exceptions));
+        $this->deferred->error(new ClusterException("Stopping the cluster failed: " . $message, 0, $exception));
     }
 
     /**
