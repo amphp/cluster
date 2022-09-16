@@ -6,19 +6,19 @@ use Amp\Cancellation;
 use Amp\Cluster\Internal\ClusterMessage;
 use Amp\Cluster\Internal\ClusterLogHandler;
 use Amp\Cluster\Internal\ClusterMessageType;
+use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
 use Amp\SignalCancellation;
 use Amp\Socket\ResourceSocketServerFactory;
 use Amp\Socket\Socket;
 use Amp\Socket\SocketServerFactory;
 use Amp\Sync\Channel;
-use Amp\Sync\Internal\ConcurrentIteratorChannel;
+use Amp\Sync\ChannelException;
 use Monolog\Handler\HandlerInterface;
 use Psr\Log\LogLevel;
-use function Amp\async;
 use function Amp\trapSignal;
 
-final class Cluster
+final class Cluster implements Channel
 {
     private static ?self $cluster = null;
 
@@ -42,13 +42,13 @@ final class Cluster
 
     public static function getChannel(): Channel
     {
-        if (!self::isWorker()) {
+        if (!self::$cluster) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
                 "Create your own log handler when not running as part of a cluster. " .
                 "Use " . __CLASS__ . "::isWorker() to determine if the process is running as a worker.");
         }
 
-        return self::$cluster->userChannel;
+        return self::$cluster;
     }
 
     /**
@@ -63,13 +63,25 @@ final class Cluster
      */
     public static function createLogHandler(string $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface
     {
-        if (!self::isWorker()) {
+        if (!self::$cluster) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
                 "Create your own log handler when not running as part of a cluster. " .
                 "Use " . __CLASS__ . "::isWorker() to determine if the process is running as a worker.");
         }
 
-        return new ClusterLogHandler(self::$cluster->internalChannel, $logLevel, $bubble);
+        return new ClusterLogHandler(self::$cluster->ipcChannel, $logLevel, $bubble);
+    }
+
+    /**
+     * @return list<int>
+     */
+    public static function getSignalList(): array
+    {
+        return [
+            \defined('SIGINT') ? \SIGINT : 2,
+            \defined('SIGQUIT') ? \SIGQUIT : 3,
+            \defined('SIGTERM') ? \SIGTERM : 15,
+        ];
     }
 
     public static function awaitTermination(): int
@@ -83,54 +95,55 @@ final class Cluster
         self::$cluster->loop(new SignalCancellation(self::getSignalList()));
     }
 
-    /**
-     * @return list<int>
-     */
-    private static function getSignalList(): array
-    {
-        return [
-            \defined('SIGINT') ? \SIGINT : 2,
-            \defined('SIGQUIT') ? \SIGQUIT : 3,
-            \defined('SIGTERM') ? \SIGTERM : 15,
-            \defined('SIGSTOP') ? \SIGSTOP : 19,
-        ];
-    }
-
-    private readonly Channel $userChannel;
-
-    private readonly Queue $send;
-
-    private readonly Queue $receive;
+    private readonly Queue $queue;
+    private readonly ConcurrentIterator $iterator;
 
     /**
-     * @param Channel<ClusterMessage, ClusterMessage> $internalChannel
+     * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
      * @param ClusterSocketServerFactory $socketServerFactory
      */
     private function __construct(
-        private readonly Channel $internalChannel,
+        private readonly Channel $ipcChannel,
         private readonly ClusterSocketServerFactory $socketServerFactory,
     ) {
-        $this->receive = new Queue();
-        $this->send = new Queue();
+        $this->queue = new Queue();
+        $this->iterator = $this->queue->iterate();
+    }
 
-        $this->userChannel = new ConcurrentIteratorChannel($this->send->iterate(), $this->receive);
+    public function receive(?Cancellation $cancellation = null): mixed
+    {
+        if (!$this->iterator->continue($cancellation)) {
+            $this->close();
+            throw new ChannelException('Cluster channel closed unexpectedly while waiting to receive data');
+        }
+
+        return $this->iterator->getValue();
+    }
+
+    public function send(mixed $data): void
+    {
+        $this->ipcChannel->send(new ClusterMessage(ClusterMessageType::Data, $data));
+    }
+
+    public function close(): void
+    {
+        $this->ipcChannel->close();
+    }
+
+    public function isClosed(): bool
+    {
+        return $this->ipcChannel->isClosed();
+    }
+
+    public function onClose(\Closure $onClose): void
+    {
+        $this->ipcChannel->onClose($onClose);
     }
 
     private function loop(Cancellation $cancellation): void
     {
-        async(fn () => $this->receive->pipe()->forEach(
-            fn (mixed $data) => $this->internalChannel->send(
-                new ClusterMessage(ClusterMessageType::Data, $data),
-            )
-        ))->ignore();
-
-        $id = $cancellation->subscribe(function (): void {
-            $this->receive->complete();
-            $this->send->complete();
-        });
-
         try {
-            while ($message = $this->internalChannel->receive($cancellation)) {
+            while ($message = $this->ipcChannel->receive($cancellation)) {
                 if (!$message instanceof ClusterMessage) {
                     throw new \ValueError(
                         'Unexpected message type received on internal channel: ' . \get_debug_type($message),
@@ -138,18 +151,20 @@ final class Cluster
                 }
 
                 match ($message->type) {
-                    ClusterMessageType::Ping => $this->internalChannel->send(
+                    ClusterMessageType::Ping => $this->ipcChannel->send(
                         new ClusterMessage(ClusterMessageType::Pong, $message->data),
                     ),
 
-                    ClusterMessageType::Data => $this->send->push($message->data),
+                    ClusterMessageType::Data => $this->queue->push($message->data),
 
                     ClusterMessageType::Pong,
                     ClusterMessageType::Log => throw new \RuntimeException(),
                 };
             }
+        } catch (ChannelException) {
+            // IPC Channel manually closed
         } finally {
-            $cancellation->unsubscribe($id);
+            $this->queue->complete();
         }
     }
 }

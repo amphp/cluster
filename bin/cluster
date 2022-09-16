@@ -2,6 +2,7 @@
 <?php
 
 use Amp\ByteStream;
+use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
 use Amp\File;
 use Amp\Log\ConsoleFormatter;
@@ -214,12 +215,7 @@ if (isset($pidFilePath)) {
 $watcher = new Watcher($workerArguments, ipcHub(), $logger);
 
 try {
-    $signals = [
-        'SIGINT' => \defined('SIGINT') ? \SIGINT : 2,
-        'SIGQUIT' => \defined('SIGQUIT') ? \SIGQUIT : 3,
-        'SIGTERM' => \defined('SIGTERM') ? \SIGTERM : 15,
-        'SIGSTOP' => \defined('SIGSTOP') ? \SIGSTOP : 19,
-    ];
+    $signals = Cluster::getSignalList();
 
     $signalHandler = function (string $watcherId, int $signalNumber) use (
         $watcher,
