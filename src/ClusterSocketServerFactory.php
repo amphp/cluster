@@ -40,7 +40,7 @@ final class ClusterSocketServerFactory implements SocketServerFactory
         async(static fn () => $channel->send(null))->ignore();
     }
 
-    public function listen(SocketAddress $address, ?BindContext $bindContext = null): SocketServer
+    public function listen(SocketAddress|string $address, ?BindContext $bindContext = null): SocketServer
     {
         $bindContext ??= new BindContext();
 
