@@ -5,6 +5,7 @@ namespace Amp\Cluster\Test;
 use Amp\ByteStream\StreamChannel;
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
+use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
 use Amp\Socket;
 use Monolog\Handler\HandlerInterface;
@@ -23,6 +24,12 @@ class ClusterTest extends AsyncTestCase
         $this->logger = new Logger('test-logger');
     }
 
+    public function tearDown(): void
+    {
+        parent::tearDown();
+        (static fn() => Cluster::$cluster = null)->bindTo(null, Cluster::class)();
+    }
+
     public function testCreateLogHandlerInParent(): void
     {
         $this->expectException(\Error::class);
@@ -37,9 +44,8 @@ class ClusterTest extends AsyncTestCase
 
         $channel = new StreamChannel($receive, $receive);
 
-        $future = async((static function () use ($channel, $send): void {
-            static::run($channel, $send);
-        })->bindTo(null, Cluster::class));
+        (static fn() => Cluster::init($channel, $send))->bindTo(null, Cluster::class)();
+        $future = async((static fn () => Cluster::run())->bindTo(null, Cluster::class));
 
         $handler = Cluster::createLogHandler();
 
@@ -56,40 +62,12 @@ class ClusterTest extends AsyncTestCase
         }
     }
 
-    public function testOnTerminate(): void
-    {
-        [$receive, $send] = Socket\createSocketPair();
-
-        $channel = new StreamChannel($receive, $receive);
-
-        $future = async((static function () use ($channel, $send): void {
-            static::run($channel, $send);
-        })->bindTo(null, Cluster::class));
-
-        $invoked = false;
-        Cluster::onTerminate(function () use (&$invoked): void {
-            $invoked = true;
-        });
-
-        $channel = new StreamChannel($send, $send);
-        $channel->send(null); // Send null to terminate cluster.
-
-        $future->await();
-
-        try {
-            $this->assertTrue($invoked);
-        } finally {
-            $receive->close();
-            $send->close();
-        }
-    }
-
     public function testSelectPort(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', $this->logger);
+        $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', new LocalIpcHub, $this->logger);
 
         $ports = [];
-        $watcher->onMessage('port-number', function (int $port) use (&$ports): void {
+        $watcher->onMessage(function (int $port) use (&$ports): void {
             $ports[] = $port;
         });
 

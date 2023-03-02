@@ -13,7 +13,7 @@ use function Amp\async;
 // Run using bin/cluster examples/hello-world.php
 // Then connect using `nc localhost 1337` multiple times to see the PID of the accepting process change.
 
-$socketFactory = Cluster::getSocketServerFactory();
+$socketFactory = Cluster::getServerSocketFactory();
 
 $server = $socketFactory->listen(new InternetAddress("127.0.0.1", 1337));
 

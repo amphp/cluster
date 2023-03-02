@@ -38,11 +38,10 @@ return static function (Channel $channel) use ($argc, $argv): void {
     }
 
     try {
+        (static fn() => Cluster::init($channel, $transferSocket))->bindTo(null, Cluster::class)();
+
         Future\await([
-            async((static function () use ($channel, $transferSocket): void {
-                /** @noinspection PhpUndefinedClassInspection */
-                self::run($channel, $transferSocket);
-            })->bindTo(null, Cluster::class)),
+            async((static fn () => Cluster::run())->bindTo(null, Cluster::class)),
 
             /* Protect current scope by requiring script within another function.
              * Using $argc so it is available to the required script. */

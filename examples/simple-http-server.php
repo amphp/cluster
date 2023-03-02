@@ -31,7 +31,7 @@ $logger = new Logger('worker-' . Cluster::getContextId());
 $logger->pushHandler($handler);
 
 // Set up a simple request handler.
-$server = new SocketHttpServer($logger, socketServerFactory: Cluster::getSocketServerFactory());
+$server = new SocketHttpServer($logger, serverSocketFactory: Cluster::getServerSocketFactory());
 
 $server->expose(new InternetAddress("127.0.0.1", 1337));
 //$server->expose(new InternetAddress("[::]", 1337));

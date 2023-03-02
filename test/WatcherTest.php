@@ -3,6 +3,7 @@
 namespace Amp\Cluster\Test;
 
 use Amp\Cluster\Watcher;
+use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
 use Monolog\Logger;
 use function Amp\delay;
@@ -19,7 +20,7 @@ class WatcherTest extends AsyncTestCase
 
     public function testDoubleStart(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
+        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', new LocalIpcHub, $this->logger);
 
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('The cluster is already running or has already run');
@@ -34,7 +35,7 @@ class WatcherTest extends AsyncTestCase
 
     public function testInvalidWorkerCount(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
+        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', new LocalIpcHub, $this->logger);
 
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('The number of workers must be greater than zero');
@@ -48,10 +49,10 @@ class WatcherTest extends AsyncTestCase
 
     public function testReceivingMessage(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
+        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', new LocalIpcHub, $this->logger);
 
         $invoked = false;
-        $watcher->onMessage('test-event', function (string $message) use (&$invoked) {
+        $watcher->onMessage(function (string $message) use (&$invoked) {
             $invoked = true;
             $this->assertSame('test-message', $message);
         });
@@ -67,10 +68,10 @@ class WatcherTest extends AsyncTestCase
 
     public function testRestart(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger);
+        $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', new LocalIpcHub, $this->logger);
 
         $invoked = 0;
-        $watcher->onMessage('test-event', function (string $message) use (&$invoked) {
+        $watcher->onMessage(function (string $message) use (&$invoked) {
             ++$invoked;
             $this->assertSame('test-message', $message);
         });

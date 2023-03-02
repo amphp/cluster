@@ -17,7 +17,7 @@ use Amp\Sync\ChannelException;
 use function Amp\async;
 use const Amp\Process\IS_WINDOWS;
 
-final class ClusterSocketServerProvider
+final class ClusterServerSocketProvider
 {
     private readonly BindContext $bindContext;
     private readonly Serializer $serializer;

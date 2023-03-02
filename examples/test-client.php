@@ -1,7 +1,7 @@
 <?php
 
 use Amp\CancelledException;
-use Amp\Cluster\ClusterSocketServerFactory;
+use Amp\Cluster\ClusterServerSocketFactory;
 use Amp\Parallel\Ipc;
 use Amp\SignalCancellation;
 use Amp\Socket\InternetAddress;
@@ -21,7 +21,7 @@ return function (Channel $channel): void {
 
     $socket = Ipc\connect($uri, $key);
 
-    $clusterServerFactory = new ClusterSocketServerFactory($socket);
+    $clusterServerFactory = new ClusterServerSocketFactory($socket);
 
     $server = $clusterServerFactory->listen(new InternetAddress('127.0.0.1', 9337));
 

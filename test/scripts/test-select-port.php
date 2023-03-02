@@ -3,16 +3,17 @@
 namespace Amp\Cluster\Test;
 
 use Amp\Cluster\Cluster;
-use Amp\Loop;
-use Amp\Socket\Server;
+use Amp\Socket\ServerSocket;
+use Revolt\EventLoop;
 
-Loop::run(function () {
-    $server = yield Cluster::listen('tcp://0.0.0.0:0');
-    \assert($server instanceof Server);
+$server = Cluster::getServerSocketFactory()->listen('tcp://0.0.0.0:0');
+\assert($server instanceof ServerSocket);
 
-    Cluster::send('port-number', $server->getAddress()->getPort());
+Cluster::getChannel()->send($server->getAddress()->getPort());
 
-    Cluster::onTerminate([$server, 'close']);
-
-    yield $server->accept();
+EventLoop::queue(function () use ($server) {
+    Cluster::awaitTermination();
+    $server->close();
 });
+
+$server->accept();

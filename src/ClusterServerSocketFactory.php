@@ -6,17 +6,17 @@ use Amp\ByteStream\StreamChannel;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Socket\BindContext;
-use Amp\Socket\ResourceSocketServer;
+use Amp\Socket\ResourceServerSocket;
+use Amp\Socket\ServerSocket;
+use Amp\Socket\ServerSocketFactory;
 use Amp\Socket\Socket;
 use Amp\Socket\SocketAddress;
 use Amp\Socket\SocketException;
-use Amp\Socket\SocketServer;
-use Amp\Socket\SocketServerFactory;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use function Amp\async;
 
-final class ClusterSocketServerFactory implements SocketServerFactory
+final class ClusterServerSocketFactory implements ServerSocketFactory
 {
     /** @var Channel<never, SocketAddress|null> */
     private readonly Channel $channel;
@@ -40,7 +40,7 @@ final class ClusterSocketServerFactory implements SocketServerFactory
         async(static fn () => $channel->send(null))->ignore();
     }
 
-    public function listen(SocketAddress|string $address, ?BindContext $bindContext = null): SocketServer
+    public function listen(SocketAddress|string $address, ?BindContext $bindContext = null): ServerSocket
     {
         $bindContext ??= new BindContext();
 
@@ -69,6 +69,6 @@ final class ClusterSocketServerFactory implements SocketServerFactory
         $stream = \socket_export_stream($socket);
         \stream_context_set_option($stream, $context);
 
-        return new ResourceSocketServer($stream, $bindContext);
+        return new ResourceServerSocket($stream, $bindContext);
     }
 }

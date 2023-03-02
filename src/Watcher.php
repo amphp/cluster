@@ -14,13 +14,14 @@ use Amp\Parallel\Ipc\IpcHub;
 use Amp\Sync\ChannelException;
 use Amp\TimeoutCancellation;
 use Monolog\Logger;
+use Revolt\EventLoop;
 use function Amp\async;
 
 final class Watcher
 {
     public const WORKER_TIMEOUT = 5;
 
-    private readonly ClusterSocketServerProvider $provider;
+    private readonly ClusterServerSocketProvider $provider;
 
     private bool $running = false;
 
@@ -57,12 +58,12 @@ final class Watcher
         );
 
         $this->workers = new \SplObjectStorage();
-        $this->provider = new ClusterSocketServerProvider();
+        $this->provider = new ClusterServerSocketProvider();
     }
 
     public function __destruct()
     {
-        $this->stop();
+        EventLoop::queue($this->stop(...));
     }
 
     /**
@@ -108,7 +109,7 @@ final class Watcher
     private function startWorker(): Future
     {
         return async(function (): void {
-            $context = ProcessContext::start($this->script);
+            $context = ProcessContext::start($this->hub, $this->script);
 
             $id = $this->nextId++;
 
@@ -145,7 +146,7 @@ final class Watcher
                 $provider = async(fn () => Future\await([
                     self::pipeOutputToLogger('STDOUT', $pid, $context->getStdout(), $this->logger),
                     self::pipeOutputToLogger('STDERR', $pid, $context->getStderr(), $this->logger),
-                    $this->provider->provideFor($socket),
+                    is_resource($socket->getResource()) ? $this->provider->provideFor($socket) : Future::complete(),
                 ]));
 
                 try {

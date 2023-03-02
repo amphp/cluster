@@ -5,17 +5,17 @@ namespace Amp\Cluster\Test;
 use Amp\Cluster\Cluster;
 use Amp\Delayed;
 use Amp\Loop;
+use Revolt\EventLoop;
 
-Loop::run(function () {
-    $running = true;
+$running = true;
 
-    Cluster::send('test-event', 'test-message');
+Cluster::getChannel()->send('test-message');
 
-    Cluster::onTerminate(function () use (&$running): void {
-        $running = false;
-    });
-
-    while ($running) {
-        yield new Delayed(100);
-    }
+EventLoop::queue(function () use (&$running) {
+    Cluster::awaitTermination();
+    $running = false;
 });
+
+while ($running) {
+    \Amp\delay(100);
+}

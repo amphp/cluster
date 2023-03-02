@@ -9,9 +9,9 @@ use Amp\Cluster\Internal\ClusterMessageType;
 use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
 use Amp\SignalCancellation;
-use Amp\Socket\ResourceSocketServerFactory;
+use Amp\Socket\ResourceServerSocketFactory;
 use Amp\Socket\Socket;
-use Amp\Socket\SocketServerFactory;
+use Amp\Socket\ServerSocketFactory;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use Monolog\Handler\HandlerInterface;
@@ -35,9 +35,9 @@ final class Cluster implements Channel
         return \defined("AMP_CONTEXT_ID") ? \AMP_CONTEXT_ID : \getmypid();
     }
 
-    public static function getSocketServerFactory(): SocketServerFactory
+    public static function getServerSocketFactory(): ServerSocketFactory
     {
-        return self::$cluster?->socketServerFactory ?? new ResourceSocketServerFactory();
+        return self::$cluster?->serverSocketFactory ?? new ResourceServerSocketFactory();
     }
 
     public static function getChannel(): Channel
@@ -89,9 +89,12 @@ final class Cluster implements Channel
         return trapSignal(self::getSignalList());
     }
 
-    private static function run(Channel $channel, Socket $transferSocket): void
+    private static function init(Channel $channel, Socket $transferSocket): void
     {
-        self::$cluster = new self($channel, new ClusterSocketServerFactory($transferSocket));
+        self::$cluster = new self($channel, new ClusterServerSocketFactory($transferSocket));
+    }
+
+    private static function run(): void {
         self::$cluster->loop(new SignalCancellation(self::getSignalList()));
     }
 
@@ -100,11 +103,11 @@ final class Cluster implements Channel
 
     /**
      * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
-     * @param ClusterSocketServerFactory $socketServerFactory
+     * @param ClusterServerSocketFactory $serverSocketFactory
      */
     private function __construct(
-        private readonly Channel $ipcChannel,
-        private readonly ClusterSocketServerFactory $socketServerFactory,
+        private readonly Channel                    $ipcChannel,
+        private readonly ClusterServerSocketFactory $serverSocketFactory,
     ) {
         $this->queue = new Queue();
         $this->iterator = $this->queue->iterate();
