@@ -90,9 +90,9 @@ class WatcherTest extends AsyncTestCase
         }
     }
 
-    public function testGracefulTermination(): void
+    public function testGracefulSelfTermination(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-graceful-terminate.php', new LocalIpcHub, $this->logger);
+        $watcher = new Watcher(__DIR__ . '/scripts/test-graceful-self-terminate.php', new LocalIpcHub, $this->logger);
 
         $invoked = 0;
         $watcher->onMessage(function (string $message) use (&$invoked) {
@@ -106,5 +106,26 @@ class WatcherTest extends AsyncTestCase
 
         $watcher->stop(new TimeoutCancellation(0.1)); // Give worker time to stop.
         $this->assertSame(1, $invoked);
+    }
+
+    public function testGracefulWatcherTermination(): void
+    {
+        $watcher = new Watcher(__DIR__ . '/scripts/test-graceful-terminate-worker.php', new LocalIpcHub, $this->logger);
+
+        $invoked = 0;
+        $watcher->onMessage(function (string $message) use (&$invoked, $watcher) {
+            $this->assertSame(match (++$invoked) {
+                1 => 'Active',
+                2 => 'Adios',
+            }, $message);
+            if ($invoked === 1) {
+                $watcher->stop(new TimeoutCancellation(0.1)); // Give worker time to stop.
+                echo "hey";
+            }
+        });
+
+        $watcher->start(1);
+        $watcher->join();
+        $this->assertSame(2, $invoked);
     }
 }

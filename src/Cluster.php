@@ -89,7 +89,11 @@ final class Cluster implements Channel
 
     public static function awaitTermination(): int
     {
-        return trapSignal(self::getSignalList());
+        try {
+            return trapSignal(self::getSignalList(), true, self::$cluster->loopCancellation->getCancellation());
+        } catch (CancelledException) {
+            return 0;
+        }
     }
 
     private static function init(Channel $channel, Socket $transferSocket): void
@@ -146,12 +150,12 @@ final class Cluster implements Channel
 
     public function isClosed(): bool
     {
-        return $this->ipcChannel->isClosed();
+        return $this->loopCancellation->isCancelled();
     }
 
     public function onClose(\Closure $onClose): void
     {
-        $this->ipcChannel->onClose($onClose);
+        $this->loopCancellation->getCancellation()->subscribe($onClose);
     }
 
     private function loop(Cancellation $cancellation): void
@@ -181,6 +185,7 @@ final class Cluster implements Channel
         } catch (CancelledException | ChannelException) {
             // IPC Channel manually closed
         } finally {
+            $this->loopCancellation->cancel();
             $this->queue->complete();
         }
     }

@@ -279,6 +279,11 @@ final class Watcher
                 try {
                     if ($cancellation) {
                         try {
+                            $context->send(null);
+                        } catch (ChannelException) {
+                            // Ignore if the worker has already exited
+                        }
+                        try {
                             $future->await($cancellation);
                         } catch (CancelledException) {
                             // Worker did not die normally within cancellation window
