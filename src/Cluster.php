@@ -90,7 +90,7 @@ final class Cluster implements Channel
     public static function awaitTermination(): int
     {
         try {
-            return trapSignal(self::getSignalList(), true, self::$cluster->loopCancellation->getCancellation());
+            return trapSignal(self::getSignalList(), true, self::$cluster?->loopCancellation->getCancellation());
         } catch (CancelledException) {
             return 0;
         }
@@ -106,7 +106,7 @@ final class Cluster implements Channel
     }
 
     public static function shutdown(): void {
-        self::$cluster->close();
+        self::$cluster?->close();
     }
 
     private readonly Queue $queue;

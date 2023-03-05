@@ -17,7 +17,7 @@ $processes = [];
 
 for ($i = 0; $i < 2; ++$i) {
     echo "Starting process\n";
-    $process = ProcessContext::start([__DIR__ . '/test-client.php', $ipcHub->getUri()]);
+    $process = ProcessContext::start($ipcHub, __DIR__ . '/test-client.php');
 
     echo "Piping output of process\n";
     async(Amp\ByteStream\pipe(...), $process->getStdout(), Amp\ByteStream\getStdout())->ignore();

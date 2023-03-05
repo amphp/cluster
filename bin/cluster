@@ -7,12 +7,13 @@ use Amp\Cluster\Watcher;
 use Amp\File;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
+use Amp\Parallel\Ipc\LocalIpcHub;
+use Amp\TimeoutCancellation;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
 use Revolt\EventLoop;
 use function Amp\Cluster\countCpuCores;
-use function Amp\Parallel\Ipc\ipcHub;
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
 if (\function_exists("cli_set_process_title")) {
@@ -29,14 +30,15 @@ const HELP = <<<EOT
     Usage: [options] [script path]
 
     Options:
-    -h, --help        Display this help message
-    -w, --workers     Manually specify worker count (default: CPU core count)
-    -l, --log         Set the minimum log output level (default: debug)
-    -f, --file        Log to file path instead of STDOUT (requires amphp/file)
-                      Asterisks (*) in path will be replaced with cluster PID
-    -n, --name        Cluster process name
-    -p, --pid-file    File path to write current PID to
-    --                Marker to separate cluster and worker arguments
+    -h, --help               Display this help message
+    -w, --workers            Manually specify worker count (default: CPU core count)
+    -l, --log                Set the minimum log output level (default: debug)
+    -f, --file               Log to file path instead of STDOUT (requires amphp/file)
+                             Asterisks (*) in path will be replaced with cluster PID
+    -n, --name               Cluster process name
+    -p, --pid-file           File path to write current PID to
+    -t, --shutdown-timeout   Shutdown timeout in seconds
+    --                       Marker to separate cluster and worker arguments
 
     Example Usage:
     cluster --help
@@ -99,6 +101,13 @@ $args = [
         "prefix" => "p",
         "longPrefix" => "pid-file",
         "description" => "File path to write current PID to",
+    ],
+    "shutdown-timeout" => [
+        "prefix" => "t",
+        "longPrefix" => "shutdown-timeout",
+        "description" => "Shutdown timeout in seconds",
+        "castTo" => "float",
+        "defaultValue" => 1
     ],
     "name" => [
         "prefix" => "n",
@@ -197,6 +206,7 @@ $logger = new Logger("cluster-" . \getmypid());
 $logger->pushHandler($logHandler);
 
 $workers = $arguments->get("workers");
+$shutdown_timeout = $arguments->get("shutdown-timeout");
 
 $script = $arguments->get("script");
 
@@ -212,19 +222,20 @@ if (isset($pidFilePath)) {
 }
 
 \array_unshift($workerArguments, $arguments->get("script"));
-$watcher = new Watcher($workerArguments, ipcHub(), $logger);
+$watcher = new Watcher($workerArguments, new LocalIpcHub, $logger);
 
 try {
     $signals = Cluster::getSignalList();
 
     $signalHandler = function (string $watcherId, int $signalNumber) use (
         $watcher,
-        $logger
+        $logger,
+        $shutdown_timeout
     ): void {
         EventLoop::cancel($watcherId);
 
         $logger->info(\sprintf('Stopping cluster due to received signal: %d', $signalNumber));
-        $watcher->stop();
+        $watcher->stop($shutdown_timeout == 0 ? null : new TimeoutCancellation($shutdown_timeout));
     };
 
     \array_walk(
