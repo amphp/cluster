@@ -50,15 +50,18 @@ final class ClusterServerSocketProvider
         return async(static function () use (&$servers, $channel, $pipe, $bindContext, $cancellation): void {
             try {
                 while ($address = $channel->receive($cancellation)) {
-                    if (!$address instanceof SocketAddress) {
-                        throw new \ValueError(
+                    if ($address instanceof SocketAddress) {
+                        $uri = $address->toString();
+                    } elseif (\is_string($address)) {
+                        $uri = $address;
+                    } else {
+                        throw new \ValueError(\sprintf(
                             'Expected only instances of %s on channel; do not use the given socket outside %s',
                             SocketAddress::class,
                             self::class,
-                        );
+                        ));
                     }
 
-                    $uri = $address->toString();
                     $server = $servers[$uri] ??= self::listen($uri, $bindContext);
 
                     $pipe->send($server, $address);

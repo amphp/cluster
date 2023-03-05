@@ -3,9 +3,11 @@
 namespace Amp\Cluster\Internal;
 
 use Amp\Cancellation;
-use Amp\CancelledException;
+use Amp\Cluster\Watcher;
+use Amp\CompositeCancellation;
 use Amp\Parallel\Context\ProcessContext;
 use Amp\Socket\Socket;
+use Amp\TimeoutCancellation;
 use Monolog\Handler\HandlerInterface as MonologHandler;
 use Monolog\Logger;
 use Psr\Log\AbstractLogger;
@@ -50,6 +52,7 @@ final class Worker extends AbstractLogger
         }));
 
         try {
+            // We get null as last message from the cluster-runner in case it's shutting down cleanly. In that case, join it.
             while ($message = $this->context->receive($cancellation)) {
                 $this->lastActivity = \time();
 
@@ -59,15 +62,15 @@ final class Worker extends AbstractLogger
                     ClusterMessageType::Data => ($this->onData)($message->data),
 
                     ClusterMessageType::Log => \array_map(
-                        static fn (MonologHandler $handler) => $handler->handle($message->data),
+                        static fn(MonologHandler $handler) => $handler->handle($message->data),
                         $this->logger->getHandlers(),
                     ),
 
                     ClusterMessageType::Ping => throw new \RuntimeException(),
                 };
             }
-        } catch (CancelledException) {
-            // Shutting down worker.
+
+            $this->context->join(new CompositeCancellation($cancellation, new TimeoutCancellation(Watcher::WORKER_TIMEOUT)));
         } finally {
             EventLoop::cancel($watcher);
             $this->shutdown();

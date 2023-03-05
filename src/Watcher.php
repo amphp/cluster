@@ -3,6 +3,8 @@
 namespace Amp\Cluster;
 
 use Amp\ByteStream\ReadableResourceStream;
+use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\CompositeException;
 use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
@@ -155,6 +157,8 @@ final class Watcher
 
                         $worker->info("Worker {$id} terminated cleanly" .
                             ($this->running ? ", restarting..." : ""));
+                    } catch (CancelledException) {
+                        $worker->info("Worker {$id} forcefully terminated as part of watcher shutdown");
                     } catch (ChannelException $exception) {
                         $worker->error("Worker {$id} (PID {$pid}) died unexpectedly: {$exception->getMessage()}" .
                             ($this->running ? ", restarting..." : ""));
@@ -247,24 +251,39 @@ final class Watcher
 
     /**
      * Stops the cluster.
+     *
+     * @param Cancellation|null $cancellation Token to request cancellation of waiting for shutdown. When cancelled, the workers are forcefully killed.
+     * If null, the workers are killed immediately.
      */
-    public function stop(): void
+    public function stop(?Cancellation $cancellation = null): void
     {
         if (!$this->running) {
             return;
         }
 
         $this->running = false;
-        $this->deferredCancellation->cancel();
+
+        if ($cancellation) {
+            $cancellation->subscribe($this->deferredCancellation->cancel(...));
+        } else {
+            $this->deferredCancellation->cancel();
+        }
 
         $futures = [];
         foreach (clone $this->workers as $worker) {
             \assert($worker instanceof Internal\Worker);
-            $futures[] = async(function () use ($worker): void {
+            $futures[] = async(function () use ($worker, $cancellation): void {
                 [$context, $future] = $this->workers[$worker];
                 \assert($context instanceof Context && $future instanceof Future);
 
                 try {
+                    if ($cancellation) {
+                        try {
+                            $future->await($cancellation);
+                        } catch (CancelledException) {
+                            // Worker did not die normally within cancellation window
+                        }
+                    }
                     $worker->shutdown();
                     $future->await(new TimeoutCancellation(self::WORKER_TIMEOUT));
                 } catch (ContextException) {

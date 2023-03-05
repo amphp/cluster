@@ -3,9 +3,12 @@
 namespace Amp\Cluster;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\Cluster\Internal\ClusterMessage;
 use Amp\Cluster\Internal\ClusterLogHandler;
 use Amp\Cluster\Internal\ClusterMessageType;
+use Amp\CompositeCancellation;
+use Amp\DeferredCancellation;
 use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
 use Amp\SignalCancellation;
@@ -98,8 +101,13 @@ final class Cluster implements Channel
         self::$cluster->loop(new SignalCancellation(self::getSignalList()));
     }
 
+    public static function shutdown(): void {
+        self::$cluster->close();
+    }
+
     private readonly Queue $queue;
     private readonly ConcurrentIterator $iterator;
+    private DeferredCancellation $loopCancellation;
 
     /**
      * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
@@ -116,7 +124,9 @@ final class Cluster implements Channel
     public function receive(?Cancellation $cancellation = null): mixed
     {
         if (!$this->iterator->continue($cancellation)) {
-            $this->close();
+            if ($this->loopCancellation->isCancelled()) {
+                throw new ChannelException('Cluster channel manually closed while waiting to receive data');
+            }
             throw new ChannelException('Cluster channel closed unexpectedly while waiting to receive data');
         }
 
@@ -130,7 +140,8 @@ final class Cluster implements Channel
 
     public function close(): void
     {
-        $this->ipcChannel->close();
+        // Don't close the ipcChannel directly here, that's the task of the process-runner
+        $this->loopCancellation->cancel();
     }
 
     public function isClosed(): bool
@@ -145,8 +156,11 @@ final class Cluster implements Channel
 
     private function loop(Cancellation $cancellation): void
     {
+        $this->loopCancellation = new DeferredCancellation;
+        $abortCancellation = new CompositeCancellation($this->loopCancellation->getCancellation(), $cancellation);
+
         try {
-            while ($message = $this->ipcChannel->receive($cancellation)) {
+            while ($message = $this->ipcChannel->receive($abortCancellation)) {
                 if (!$message instanceof ClusterMessage) {
                     throw new \ValueError(
                         'Unexpected message type received on internal channel: ' . \get_debug_type($message),
@@ -164,7 +178,7 @@ final class Cluster implements Channel
                     ClusterMessageType::Log => throw new \RuntimeException(),
                 };
             }
-        } catch (ChannelException) {
+        } catch (CancelledException | ChannelException) {
             // IPC Channel manually closed
         } finally {
             $this->queue->complete();

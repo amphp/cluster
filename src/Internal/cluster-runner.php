@@ -13,6 +13,11 @@ use function Amp\async;
 return static function (Channel $channel) use ($argc, $argv): void {
     /** @var list<string> $argv */
 
+    if (function_exists("posix_setsid")) {
+        // Allow accepting signals (like SIGINT), without having signals delivered to the watcher impact the cluster
+        \posix_setsid();
+    }
+
     // Remove this scripts path from process arguments.
     --$argc;
     \array_shift($argv);
@@ -51,6 +56,6 @@ return static function (Channel $channel) use ($argc, $argv): void {
         ]);
     } finally {
         $transferSocket->close();
-        $channel->close();
+        $channel->send(null);
     }
 };

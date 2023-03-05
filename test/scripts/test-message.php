@@ -3,8 +3,6 @@
 namespace Amp\Cluster\Test;
 
 use Amp\Cluster\Cluster;
-use Amp\Delayed;
-use Amp\Loop;
 use Revolt\EventLoop;
 
 $running = true;

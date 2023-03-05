@@ -5,6 +5,7 @@ namespace Amp\Cluster\Test;
 use Amp\Cluster\Watcher;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
+use Amp\TimeoutCancellation;
 use Monolog\Logger;
 use function Amp\delay;
 
@@ -87,5 +88,23 @@ class WatcherTest extends AsyncTestCase
         } finally {
             $watcher->stop();
         }
+    }
+
+    public function testGracefulTermination(): void
+    {
+        $watcher = new Watcher(__DIR__ . '/scripts/test-graceful-terminate.php', new LocalIpcHub, $this->logger);
+
+        $invoked = 0;
+        $watcher->onMessage(function (string $message) use (&$invoked) {
+            ++$invoked;
+            $this->assertSame('Initiating shutdown', $message);
+        });
+
+        $watcher->start(1);
+        delay(0.1); // Give worker time to start.
+        $watcher->broadcast(null);
+
+        $watcher->stop(new TimeoutCancellation(0.1)); // Give worker time to stop.
+        $this->assertSame(1, $invoked);
     }
 }
