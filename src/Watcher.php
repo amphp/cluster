@@ -31,6 +31,8 @@ final class Watcher
 
     /** @var Internal\Worker[] */
     private array $workers = [];
+    /** @var Future[] */
+    private array $workerFutures = [];
 
     /** @var list<\Closure(mixed):void> */
     private array $onMessage = [];
@@ -140,7 +142,7 @@ final class Watcher
                 return;
             }
 
-            async(function () use ($worker, $context, $socket, $id): void {
+            $this->workerFutures[$id] = async(function () use ($worker, $context, $socket, $id): void {
                 $pid = $context->getPid();
 
                 $provider = async(fn () => Future\await([
@@ -167,8 +169,7 @@ final class Watcher
                         );
                         throw $exception;
                     } finally {
-                        $context->close();
-                        unset($this->workers[$id]);
+                        unset($this->workers[$id], $this->workerFutures[$id]);
                     }
 
                     // Wait for the STDIO streams to be consumed and closed.
@@ -257,13 +258,16 @@ final class Watcher
         $this->running = false;
 
         $futures = [];
-        foreach ($this->workers as $worker) {
-            $futures[] = async(function () use ($worker, $cancellation): void {
+        foreach ($this->workers as $id => $worker) {
+            $futures[] = async(function () use ($id, $worker, $cancellation): void {
+                $future = $this->workerFutures[$id];
                 try {
                     $worker->shutdown($cancellation);
                 } catch (ContextException) {
                     // Ignore if the worker has already died unexpectedly.
                 }
+                // We need to avoid this future here, otherwise we may not log things properly if the event-loop exits immediately after
+                $future->await();
             });
         }
 

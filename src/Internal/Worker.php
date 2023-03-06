@@ -83,6 +83,9 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
                 };
             }
 
+            // Avoid immediate shutdown thanks to race condition with ping-watcher
+            EventLoop::cancel($watcher);
+
             $this->context->join(new CompositeCancellation($this->deferredCancellation->getCancellation(), new TimeoutCancellation(Watcher::WORKER_TIMEOUT)));
         } finally {
             EventLoop::cancel($watcher);
@@ -108,14 +111,16 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
                 }
             }
         } finally {
-            $this->socket->close();
+            if (!$this->deferredCancellation->isCancelled()) {
+                $this->socket->close();
 
-            $this->context->close();
+                $this->context->close();
 
-            $this->context->getStdout()->close();
-            $this->context->getStderr()->close();
+                $this->context->getStdout()->close();
+                $this->context->getStderr()->close();
 
-            $this->deferredCancellation->cancel();
+                $this->deferredCancellation->cancel();
+            }
         }
     }
 
