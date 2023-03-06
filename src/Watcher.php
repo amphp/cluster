@@ -6,15 +6,12 @@ use Amp\ByteStream\ReadableResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\CompositeException;
-use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
 use Amp\Future;
-use Amp\Parallel\Context\Context;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\ProcessContext;
 use Amp\Parallel\Ipc\IpcHub;
 use Amp\Sync\ChannelException;
-use Amp\TimeoutCancellation;
 use Monolog\Logger;
 use Revolt\EventLoop;
 use function Amp\async;
@@ -32,14 +29,13 @@ final class Watcher
 
     private int $nextId = 1;
 
-    private readonly \SplObjectStorage $workers;
+    /** @var Internal\Worker[] */
+    private array $workers = [];
 
     /** @var list<\Closure(mixed):void> */
     private array $onMessage = [];
 
     private ?DeferredFuture $deferred = null;
-
-    private ?DeferredCancellation $deferredCancellation = null;
 
     /**
      * @param string|string[] $script Script path and optional arguments.
@@ -59,7 +55,6 @@ final class Watcher
             \is_array($script) ? \array_values(\array_map(\strval(...), $script)) : [$script]
         );
 
-        $this->workers = new \SplObjectStorage();
         $this->provider = new ClusterServerSocketProvider();
     }
 
@@ -86,8 +81,6 @@ final class Watcher
         if ($this->running || $this->deferred) {
             throw new \Error("The cluster is already running or has already run");
         }
-
-        $this->deferredCancellation = new DeferredCancellation();
 
         if ($count <= 0) {
             throw new \Error("The number of workers must be greater than zero");
@@ -153,7 +146,7 @@ final class Watcher
 
                 try {
                     try {
-                        $worker->run($this->deferredCancellation->getCancellation());
+                        $worker->run();
 
                         $worker->info("Worker {$id} terminated cleanly" .
                             ($this->running ? ", restarting..." : ""));
@@ -190,7 +183,7 @@ final class Watcher
                 return;
             }
 
-            $this->workers->attach($worker, [$context, $future]);
+            $this->workers[$id] = $worker;
         });
     }
 
@@ -221,24 +214,24 @@ final class Watcher
         $this->deferred->getFuture()->await();
     }
 
+    /**
+     * Returns an array of all workers, mapped by their ID.
+     *
+     * @return Worker[]
+     */
+    public function getWorkers(): array
+    {
+        return $this->workers;
+    }
+
+    /**
+     * Restarts all workers simultaneously without delay.
+     */
     public function restart(): void
     {
         $futures = [];
-        foreach (clone $this->workers as $worker) {
-            \assert($worker instanceof Internal\Worker);
-            [$context, $future] = $this->workers[$worker];
-            \assert($context instanceof Context && $future instanceof Future);
-
-            $futures[] = async(function () use ($worker, $context, $future): void {
-                try {
-                    $worker->shutdown();
-                    $future->await(new TimeoutCancellation(self::WORKER_TIMEOUT));
-                } finally {
-                    if (!$context->isClosed()) {
-                        $context->close();
-                    }
-                }
-            });
+        foreach ($this->workers as $worker) {
+            $futures[] = async($worker->shutdown(...));
         }
 
         try {
@@ -263,42 +256,15 @@ final class Watcher
 
         $this->running = false;
 
-        if ($cancellation) {
-            $cancellation->subscribe($this->deferredCancellation->cancel(...));
-        } else {
-            $this->deferredCancellation->cancel();
-        }
-
         $futures = [];
-        foreach (clone $this->workers as $worker) {
-            \assert($worker instanceof Internal\Worker);
-            $futures[] = async(function () use ($worker, $cancellation): void {
-                [$context, $future] = $this->workers[$worker];
-                \assert($context instanceof Context && $future instanceof Future);
-
+        foreach ($this->workers as $id => $worker) {
+            $futures[] = async(function () use ($worker, $id, $cancellation): void {
                 try {
-                    if ($cancellation) {
-                        try {
-                            $context->send(null);
-                        } catch (ChannelException) {
-                            // Ignore if the worker has already exited
-                        }
-                        try {
-                            $future->await($cancellation);
-                        } catch (CancelledException) {
-                            // Worker did not die normally within cancellation window
-                        }
-                    }
-                    $worker->shutdown();
-                    $future->await(new TimeoutCancellation(self::WORKER_TIMEOUT));
+                    $worker->shutdown($cancellation);
                 } catch (ContextException) {
                     // Ignore if the worker has already died unexpectedly.
                 } finally {
-                    if (!$context->isClosed()) {
-                        $context->close();
-                    }
-
-                    $this->workers->detach($worker);
+                    unset($this->workers[$id]);
                 }
             });
         }
@@ -329,11 +295,10 @@ final class Watcher
     }
 
     /**
-     * Broadcast data to all workers, triggering any callbacks registered with Cluster::onMessage().
+     * Broadcast data to all workers, sending data to active Cluster::getChannel()->receive() listeners.
      */
     public function broadcast(mixed $data): void
     {
-        /** @var Internal\Worker $worker */
         foreach ($this->workers as $worker) {
             $worker->send($data);
         }

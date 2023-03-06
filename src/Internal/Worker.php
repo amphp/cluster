@@ -3,10 +3,14 @@
 namespace Amp\Cluster\Internal;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\Cluster\Watcher;
 use Amp\CompositeCancellation;
+use Amp\DeferredCancellation;
+use Amp\DeferredFuture;
 use Amp\Parallel\Context\ProcessContext;
 use Amp\Socket\Socket;
+use Amp\Sync\ChannelException;
 use Amp\TimeoutCancellation;
 use Monolog\Handler\HandlerInterface as MonologHandler;
 use Monolog\Logger;
@@ -15,11 +19,13 @@ use Revolt\EventLoop;
 use function Amp\weakClosure;
 
 /** @internal */
-final class Worker extends AbstractLogger
+final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
 {
     private const PING_TIMEOUT = 10;
 
     private int $lastActivity;
+
+    private ?DeferredCancellation $deferredCancellation = null;
 
     public function __construct(
         private readonly int $id,
@@ -31,13 +37,20 @@ final class Worker extends AbstractLogger
         $this->lastActivity = \time();
     }
 
+    public function getId(): int
+    {
+        return $this->id;
+    }
+
     public function send(mixed $data): void
     {
         $this->context->send(new ClusterMessage(ClusterMessageType::Data, $data));
     }
 
-    public function run(Cancellation $cancellation): void
+    public function run(): void
     {
+        $this->deferredCancellation = new DeferredCancellation;
+
         $watcher = EventLoop::repeat(self::PING_TIMEOUT / 4, weakClosure(function (): void {
             if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                 $this->shutdown();
@@ -53,7 +66,7 @@ final class Worker extends AbstractLogger
 
         try {
             // We get null as last message from the cluster-runner in case it's shutting down cleanly. In that case, join it.
-            while ($message = $this->context->receive($cancellation)) {
+            while ($message = $this->context->receive($this->deferredCancellation->getCancellation())) {
                 $this->lastActivity = \time();
 
                 match ($message->type) {
@@ -70,21 +83,40 @@ final class Worker extends AbstractLogger
                 };
             }
 
-            $this->context->join(new CompositeCancellation($cancellation, new TimeoutCancellation(Watcher::WORKER_TIMEOUT)));
+            $this->context->join(new CompositeCancellation($this->deferredCancellation->getCancellation(), new TimeoutCancellation(Watcher::WORKER_TIMEOUT)));
         } finally {
             EventLoop::cancel($watcher);
             $this->shutdown();
         }
     }
 
-    public function shutdown(): void
+    public function shutdown(?Cancellation $cancellation = null): void
     {
-        $this->socket->close();
+        try {
+            if ($cancellation) {
+                try {
+                    $this->context->send(null);
+                } catch (ChannelException) {
+                    // Ignore if the worker has already exited
+                }
+                try {
+                    $future = new DeferredFuture;
+                    $this->deferredCancellation->getCancellation()->subscribe($future->complete(...));
+                    $future->getFuture()->await($cancellation);
+                } catch (CancelledException) {
+                    // Worker did not die normally within cancellation window
+                }
+            }
+        } finally {
+            $this->socket->close();
 
-        $this->context->close();
+            $this->context->close();
 
-        $this->context->getStdout()->close();
-        $this->context->getStderr()->close();
+            $this->context->getStdout()->close();
+            $this->context->getStderr()->close();
+
+            $this->deferredCancellation->cancel();
+        }
     }
 
     public function log($level, $message, array $context = []): void
