@@ -135,7 +135,12 @@ final class Watcher
 
             $worker->info(\sprintf('Started worker with ID %d', $id));
 
-            $future = async(function () use ($worker, $context, $socket, $id): void {
+            // Cluster stopped while worker was starting, so immediately throw everything away.
+            if (!$this->running) {
+                return;
+            }
+
+            async(function () use ($worker, $context, $socket, $id): void {
                 $pid = $context->getPid();
 
                 $provider = async(fn () => Future\await([
@@ -163,6 +168,7 @@ final class Watcher
                         throw $exception;
                     } finally {
                         $context->close();
+                        unset($this->workers[$id]);
                     }
 
                     // Wait for the STDIO streams to be consumed and closed.
@@ -176,12 +182,6 @@ final class Watcher
                     throw $exception;
                 }
             });
-
-            if (!$this->running) {
-                // Cluster stopped while worker was starting, so immediately shutdown the worker.
-                $worker->shutdown();
-                return;
-            }
 
             $this->workers[$id] = $worker;
         });
@@ -257,14 +257,12 @@ final class Watcher
         $this->running = false;
 
         $futures = [];
-        foreach ($this->workers as $id => $worker) {
-            $futures[] = async(function () use ($worker, $id, $cancellation): void {
+        foreach ($this->workers as $worker) {
+            $futures[] = async(function () use ($worker, $cancellation): void {
                 try {
                     $worker->shutdown($cancellation);
                 } catch (ContextException) {
                     // Ignore if the worker has already died unexpectedly.
-                } finally {
-                    unset($this->workers[$id]);
                 }
             });
         }
