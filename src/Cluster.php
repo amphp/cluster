@@ -1,11 +1,11 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\Cluster\Internal\ClusterMessage;
 use Amp\Cluster\Internal\ClusterLogHandler;
+use Amp\Cluster\Internal\ClusterMessage;
 use Amp\Cluster\Internal\ClusterMessageType;
 use Amp\CompositeCancellation;
 use Amp\DeferredCancellation;
@@ -13,8 +13,8 @@ use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
 use Amp\SignalCancellation;
 use Amp\Socket\ResourceServerSocketFactory;
-use Amp\Socket\Socket;
 use Amp\Socket\ServerSocketFactory;
+use Amp\Socket\Socket;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use Monolog\Handler\HandlerInterface;
@@ -60,7 +60,6 @@ final class Cluster implements Channel
      * @param string $logLevel Log level for the IPC handler
      * @param bool $bubble Bubble flag for the IPC handler
      *
-     * @return HandlerInterface
      *
      * @throws \Error Thrown if not running as a worker.
      */
@@ -81,6 +80,7 @@ final class Cluster implements Channel
     public static function getSignalList(): array
     {
         return [
+            \defined('SIGHUP') ? \SIGHUP : 1,
             \defined('SIGINT') ? \SIGINT : 2,
             \defined('SIGQUIT') ? \SIGQUIT : 3,
             \defined('SIGTERM') ? \SIGTERM : 15,
@@ -101,11 +101,13 @@ final class Cluster implements Channel
         self::$cluster = new self($channel, new ClusterServerSocketFactory($transferSocket));
     }
 
-    private static function run(): void {
+    private static function run(): void
+    {
         self::$cluster->loop(new SignalCancellation(self::getSignalList()));
     }
 
-    public static function shutdown(): void {
+    public static function shutdown(): void
+    {
         self::$cluster?->close();
     }
 
@@ -115,7 +117,6 @@ final class Cluster implements Channel
 
     /**
      * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
-     * @param ClusterServerSocketFactory $serverSocketFactory
      */
     private function __construct(
         private readonly Channel                    $ipcChannel,

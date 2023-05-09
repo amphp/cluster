@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster;
 
@@ -41,7 +41,6 @@ final class Watcher
 
     /**
      * @param string|string[] $script Script path and optional arguments.
-     * @param Logger $logger
      */
     public function __construct(
         string|array $script,
@@ -148,7 +147,7 @@ final class Watcher
                 $provider = async(fn () => Future\await([
                     self::pipeOutputToLogger('STDOUT', $pid, $context->getStdout(), $this->logger),
                     self::pipeOutputToLogger('STDERR', $pid, $context->getStderr(), $this->logger),
-                    is_resource($socket->getResource()) ? $this->provider->provideFor($socket) : Future::complete(),
+                    \is_resource($socket->getResource()) ? $this->provider->provideFor($socket) : Future::complete(),
                 ]));
 
                 try {
@@ -164,7 +163,7 @@ final class Watcher
                             ($this->running ? ", restarting..." : ""));
                     } catch (\Throwable $exception) {
                         $worker->error(
-                            "Worker {$id} (PID {$pid}) failed: " . (string)$exception,
+                            "Worker {$id} (PID {$pid}) failed: " . (string) $exception,
                             ['exception' => $exception],
                         );
                         throw $exception;
@@ -290,9 +289,7 @@ final class Watcher
         }
 
         $exception = new CompositeException($exceptions);
-        $message = \implode('; ', \array_map(static function (\Throwable $exception): string {
-            return $exception->getMessage();
-        }, $exceptions));
+        $message = \implode('; ', \array_map(static fn (\Throwable $e) => $e->getMessage(), $exceptions));
         $this->deferred->error(new ClusterException("Stopping the cluster failed: " . $message, 0, $exception));
     }
 

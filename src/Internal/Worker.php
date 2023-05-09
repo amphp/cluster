@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster\Internal;
 
@@ -75,7 +75,7 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
                     ClusterMessageType::Data => ($this->onData)($message->data),
 
                     ClusterMessageType::Log => \array_map(
-                        static fn(MonologHandler $handler) => $handler->handle($message->data),
+                        static fn (MonologHandler $handler) => $handler->handle($message->data),
                         $this->logger->getHandlers(),
                     ),
 

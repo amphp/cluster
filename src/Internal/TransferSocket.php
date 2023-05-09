@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster\Internal;
 
@@ -57,7 +57,7 @@ final class TransferSocket
                     return null;
                 }
 
-                throw new SocketException(sprintf(
+                throw new SocketException(\sprintf(
                     'Could not transfer socket: (%d) %s',
                     $errorCode,
                     \socket_strerror($errorCode),

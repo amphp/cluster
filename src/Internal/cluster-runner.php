@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster\Internal;
 
@@ -13,7 +13,7 @@ use function Amp\async;
 return static function (Channel $channel) use ($argc, $argv): void {
     /** @var list<string> $argv */
 
-    if (function_exists("posix_setsid")) {
+    if (\function_exists("posix_setsid")) {
         // Allow accepting signals (like SIGINT), without having signals delivered to the watcher impact the cluster
         \posix_setsid();
     }
@@ -43,7 +43,7 @@ return static function (Channel $channel) use ($argc, $argv): void {
     }
 
     try {
-        (static fn() => Cluster::init($channel, $transferSocket))->bindTo(null, Cluster::class)();
+        (static fn () => Cluster::init($channel, $transferSocket))->bindTo(null, Cluster::class)();
 
         Future\await([
             async((static fn () => Cluster::run())->bindTo(null, Cluster::class)),

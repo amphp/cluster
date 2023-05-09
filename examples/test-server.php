@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 use Amp\Cluster\ClusterServerSocketProvider;
 use Amp\Parallel\Context\ProcessContext;
@@ -6,7 +6,7 @@ use Amp\Parallel\Ipc\LocalIpcHub;
 use function Amp\async;
 use function Amp\trapSignal;
 
-require \dirname(__DIR__) . "/vendor/autoload.php";
+require dirname(__DIR__) . "/vendor/autoload.php";
 
 $ipcHub = new LocalIpcHub();
 
@@ -40,4 +40,4 @@ echo "Trapping signal\n";
 trapSignal(\SIGTERM);
 
 $ipcHub->close();
-\array_map(fn (ProcessContext $process) => $process->close(), $processes);
+array_map(fn (ProcessContext $process) => $process->close(), $processes);

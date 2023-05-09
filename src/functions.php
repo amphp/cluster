@@ -1,11 +1,10 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster;
 
 /**
  * Determine the total number of CPU cores on the system.
  *
- * @return int
  */
 function countCpuCores(): int
 {
@@ -47,7 +46,6 @@ function countCpuCores(): int
 /**
  * Determine if SO_REUSEPORT is supported on the system.
  *
- * @return bool
  */
 function canReusePort(): bool
 {

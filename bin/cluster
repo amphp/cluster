@@ -15,11 +15,6 @@ use Psr\Log\LogLevel;
 use Revolt\EventLoop;
 use function Amp\Cluster\countCpuCores;
 
-// some command line SAPIs (e.g. phpdbg) don't have that function
-if (\function_exists("cli_set_process_title")) {
-    @\cli_set_process_title("amp-cluster");
-}
-
 const HELP = <<<EOT
             __           __
       _____/ /_  _______/ /____  _____
@@ -49,23 +44,23 @@ const HELP = <<<EOT
 
 EOT;
 
-\error_reporting(E_ALL);
+error_reporting(E_ALL);
 
 (static function (): void {
     $paths = [
-        \dirname(__DIR__, 3) . "/autoload.php",
-        \dirname(__DIR__) . "/vendor/autoload.php",
+        dirname(__DIR__, 3) . "/autoload.php",
+        dirname(__DIR__) . "/vendor/autoload.php",
     ];
 
     foreach ($paths as $path) {
-        if (\file_exists($path)) {
+        if (file_exists($path)) {
             $autoloadPath = $path;
             break;
         }
     }
 
     if (!isset($autoloadPath)) {
-        \fwrite(STDERR, "Could not locate autoload.php");
+        fwrite(STDERR, "Could not locate autoload.php");
         exit(1);
     }
 
@@ -140,8 +135,8 @@ try {
 
     for ($i = 1; $i < $argc; $i++) {
         if ($argv[$i] === '--') {
-            $workerArguments = \array_slice($argv, $i + 1);
-            $argv = \array_slice($argv, 0, $i);
+            $workerArguments = array_slice($argv, $i + 1);
+            $argv = array_slice($argv, 0, $i);
             break;
         }
 
@@ -171,26 +166,24 @@ try {
 }
 
 // some command line SAPIs (e.g. phpdbg) don't have that function
-if (\function_exists("cli_set_process_title")) {
-    @\cli_set_process_title($arguments->get("name"));
+if (function_exists("cli_set_process_title")) {
+    @cli_set_process_title($arguments->get("name"));
 }
 
 if ($arguments->defined("pid-file")) {
-    \file_put_contents($arguments->get("pid-file"), \getmypid());
-    $pidFilePath = \realpath($arguments->get("pid-file"));
-    \register_shutdown_function(static function () use ($pidFilePath) {
-        @\unlink($pidFilePath);
-    });
+    file_put_contents($arguments->get("pid-file"), getmypid());
+    $pidFilePath = realpath($arguments->get("pid-file"));
+    register_shutdown_function(static fn () => @unlink($pidFilePath));
 }
 
 $level = $arguments->get("log");
 
 if ($arguments->defined("file", $argv)) {
-    if (!\interface_exists(File\File::class)) {
+    if (!interface_exists(File\File::class)) {
         throw new Exception("amphp/file must be installed to log to a file");
     }
 
-    $path = \str_replace('*', \getmypid(), $arguments->get("file"));
+    $path = str_replace('*', getmypid(), $arguments->get("file"));
 
     $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
     $formatter = new LineFormatter;
@@ -202,7 +195,7 @@ if ($arguments->defined("file", $argv)) {
 $formatter->allowInlineLineBreaks(true);
 $logHandler->setFormatter($formatter);
 
-$logger = new Logger("cluster-" . \getmypid());
+$logger = new Logger("cluster-" . getmypid());
 $logger->pushHandler($logHandler);
 
 $workers = $arguments->get("workers");
@@ -210,18 +203,18 @@ $shutdown_timeout = $arguments->get("shutdown-timeout");
 
 $script = $arguments->get("script");
 
-if (!\is_file($script)) {
+if (!is_file($script)) {
     echo "Error: Could not find script at path " . $script . PHP_EOL . PHP_EOL;
     exit(1);
 }
 
-$logger->info("Starting cluster PID " . \getmypid() . " with " . $workers . " workers");
+$logger->info("Starting cluster PID " . getmypid() . " with " . $workers . " workers");
 
 if (isset($pidFilePath)) {
     $logger->info("Wrote PID file to " . $pidFilePath);
 }
 
-\array_unshift($workerArguments, $arguments->get("script"));
+array_unshift($workerArguments, $arguments->get("script"));
 $watcher = new Watcher($workerArguments, new LocalIpcHub, $logger);
 
 try {
@@ -234,13 +227,13 @@ try {
     ): void {
         EventLoop::cancel($watcherId);
 
-        $logger->info(\sprintf('Stopping cluster due to received signal: %d', $signalNumber));
+        $logger->info(sprintf('Stopping cluster due to received signal: %d', $signalNumber));
         $watcher->stop($shutdown_timeout == 0 ? null : new TimeoutCancellation($shutdown_timeout));
     };
 
-    \array_walk(
+    array_walk(
         $signals,
-        fn(int $signo) => EventLoop::unreference(EventLoop::onSignal($signo, $signalHandler))
+        fn (int $signo) => EventLoop::unreference(EventLoop::onSignal($signo, $signalHandler))
     );
 
     $signalHandler = function (string $watcherId, int $signalNumber) use (
@@ -249,13 +242,13 @@ try {
     ): void {
         EventLoop::disable($watcherId);
 
-        $logger->info(\sprintf('Restarting cluster due to received signal: %d', $signalNumber));
+        $logger->info(sprintf('Restarting cluster due to received signal: %d', $signalNumber));
         $watcher->restart();
 
         EventLoop::enable($watcherId);
     };
 
-    EventLoop::unreference(EventLoop::onSignal(\defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler));
+    EventLoop::unreference(EventLoop::onSignal(defined('SIGUSR1') ? \SIGUSR1 : 10, $signalHandler));
 } catch (EventLoop\UnsupportedFeatureException $e) {
     // ignore if extensions are missing or OS is Windows
 }

@@ -1,6 +1,6 @@
-<?php
+<?php declare(strict_types=1);
 
-require \dirname(__DIR__) . "/vendor/autoload.php";
+require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
@@ -30,7 +30,7 @@ if (Cluster::isWorker()) {
 $logger = new Logger('worker-' . $id);
 $logger->pushHandler($handler);
 
-$logger->info(\sprintf("Listening on %s in PID %s", $server->getAddress(), $id));
+$logger->info(sprintf("Listening on %s in PID %s", $server->getAddress(), $id));
 
 async(static function () use ($server, $logger): void {
     Cluster::awaitTermination();
@@ -39,8 +39,8 @@ async(static function () use ($server, $logger): void {
 });
 
 while ($client = $server->accept()) {
-    $logger->info(\sprintf("Accepted client on %s in PID %d", $server->getAddress(), $id));
+    $logger->info(sprintf("Accepted client on %s in PID %d", $server->getAddress(), $id));
 
-    $client->write(\sprintf("Hello from worker ID %d!\n", $id));
+    $client->write(sprintf("Hello from worker ID %d!\n", $id));
     $client->end();
 }

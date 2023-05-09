@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster;
 
@@ -14,8 +14,8 @@ use Amp\Socket\SocketAddress;
 use Amp\Socket\SocketException;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
-use function Amp\async;
 use const Amp\Process\IS_WINDOWS;
+use function Amp\async;
 
 final class ClusterServerSocketProvider
 {

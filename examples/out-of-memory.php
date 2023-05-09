@@ -1,6 +1,6 @@
-<?php
+<?php declare(strict_types=1);
 
-require \dirname(__DIR__) . "/vendor/autoload.php";
+require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
@@ -30,12 +30,12 @@ $buffer = "";
 $character = "🍺";
 
 $watcher = EventLoop::repeat(1, static function () use (&$buffer, $character, $logger, $id): void {
-    $allocationSize = \random_int(2 ** 20, 2 ** 24);
-    $buffer .= \str_repeat($character, $allocationSize);
-    $logger->info(\sprintf("Worker ID %d is now using %d bytes of memory", $id, \memory_get_usage(true)));
+    $allocationSize = random_int(2 ** 20, 2 ** 24);
+    $buffer .= str_repeat($character, $allocationSize);
+    $logger->info(sprintf("Worker ID %d is now using %d bytes of memory", $id, memory_get_usage(true)));
 });
 
-$logger->info(\sprintf("Worker %d started", $id));
+$logger->info(sprintf("Worker %d started", $id));
 
 Cluster::awaitTermination();
 

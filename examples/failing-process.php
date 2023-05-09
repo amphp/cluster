@@ -1,6 +1,6 @@
-<?php
+<?php declare(strict_types=1);
 
-require \dirname(__DIR__) . "/vendor/autoload.php";
+require dirname(__DIR__) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
@@ -26,14 +26,11 @@ if (Cluster::isWorker()) {
 $logger = new Logger('worker-' . $id);
 $logger->pushHandler($handler);
 
-$timeout = \random_int(1, 5);
+$timeout = random_int(1, 5);
 
-$watcher = EventLoop::delay($timeout, static function (): void {
-    \trigger_error("Process failed", E_USER_ERROR);
-    exit(1);
-});
+$watcher = EventLoop::delay($timeout, static fn () => trigger_error("Process failed", E_USER_ERROR));
 
-$logger->info(\sprintf("Worker %d started, failing in %d seconds", $id, $timeout));
+$logger->info(sprintf("Worker %d started, failing in %d seconds", $id, $timeout));
 
 Cluster::awaitTermination();
 

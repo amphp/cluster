@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Amp\Cluster\Test;
 
@@ -27,7 +27,7 @@ class ClusterTest extends AsyncTestCase
     public function tearDown(): void
     {
         parent::tearDown();
-        (static fn() => Cluster::$cluster = null)->bindTo(null, Cluster::class)();
+        (static fn () => Cluster::$cluster = null)->bindTo(null, Cluster::class)();
     }
 
     public function testCreateLogHandlerInParent(): void
@@ -44,7 +44,7 @@ class ClusterTest extends AsyncTestCase
 
         $channel = new StreamChannel($receive, $receive);
 
-        (static fn() => Cluster::init($channel, $send))->bindTo(null, Cluster::class)();
+        (static fn () => Cluster::init($channel, $send))->bindTo(null, Cluster::class)();
         $future = async((static fn () => Cluster::run())->bindTo(null, Cluster::class));
 
         $handler = Cluster::createLogHandler();
