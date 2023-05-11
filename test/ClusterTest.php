@@ -44,10 +44,9 @@ class ClusterTest extends AsyncTestCase
 
         $channel = new StreamChannel($receive, $receive);
 
-        (static fn () => Cluster::init($channel, $send))->bindTo(null, Cluster::class)();
-        $future = async((static fn () => Cluster::run())->bindTo(null, Cluster::class));
+        $future = async((static fn () => Cluster::run($channel, $send))->bindTo(null, Cluster::class));
 
-        $handler = Cluster::createLogHandler();
+        $handler = async(Cluster::createLogHandler(...))->await();
 
         $channel = new StreamChannel($send, $send);
         $channel->send(null); // Send null to terminate cluster.

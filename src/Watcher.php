@@ -3,6 +3,7 @@
 namespace Amp\Cluster;
 
 use Amp\ByteStream\ReadableResourceStream;
+use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\CompositeException;
@@ -24,7 +25,7 @@ final class Watcher
 
     private bool $running = false;
 
-    /** @var list<string> */
+    /** @var non-empty-list<string> */
     private array $script;
 
     private int $nextId = 1;
@@ -123,7 +124,7 @@ final class Watcher
                     $context->close();
                 }
 
-                throw new ClusterException("Starting the cluster worker failed", 0, $exception);
+                throw new ClusterException("Starting the cluster worker failed", previous: $exception);
             }
 
             $worker = new Internal\Worker(
@@ -147,7 +148,9 @@ final class Watcher
                 $provider = async(fn () => Future\await([
                     self::pipeOutputToLogger('STDOUT', $pid, $context->getStdout(), $this->logger),
                     self::pipeOutputToLogger('STDERR', $pid, $context->getStderr(), $this->logger),
-                    \is_resource($socket->getResource()) ? $this->provider->provideFor($socket) : Future::complete(),
+                    $socket instanceof ResourceStream && \is_resource($socket->getResource())
+                        ? $this->provider->provideFor($socket)
+                        : Future::complete(),
                 ]));
 
                 try {
@@ -250,7 +253,7 @@ final class Watcher
      */
     public function stop(?Cancellation $cancellation = null): void
     {
-        if (!$this->running) {
+        if (!$this->deferred) {
             return;
         }
 
@@ -272,25 +275,29 @@ final class Watcher
 
         [$exceptions] = Future\awaitAll($futures);
 
-        $count = \count($exceptions);
-        if (!$count) {
-            $this->deferred->complete();
-            return;
-        }
+        try {
+            if (!$exceptions) {
+                $this->deferred->complete();
+                return;
+            }
 
-        if ($count === 1) {
-            $exception = \current($exceptions);
-            $this->deferred->error(new ClusterException(
-                "Stopping the cluster failed: " . $exception->getMessage(),
-                0,
-                $exception,
-            ));
-            return;
-        }
+            if (\count($exceptions) === 1) {
+                $exception = \current($exceptions);
+                $this->deferred->error(
+                    new ClusterException(
+                        "Stopping the cluster failed: " . $exception->getMessage(),
+                        previous: $exception,
+                    )
+                );
+                return;
+            }
 
-        $exception = new CompositeException($exceptions);
-        $message = \implode('; ', \array_map(static fn (\Throwable $e) => $e->getMessage(), $exceptions));
-        $this->deferred->error(new ClusterException("Stopping the cluster failed: " . $message, 0, $exception));
+            $exception = new CompositeException($exceptions);
+            $message = \implode('; ', \array_map(static fn (\Throwable $e) => $e->getMessage(), $exceptions));
+            $this->deferred->error(new ClusterException("Stopping the cluster failed: " . $message, 0, $exception));
+        } finally {
+            $this->deferred = null;
+        }
     }
 
     /**

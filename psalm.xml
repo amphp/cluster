@@ -12,4 +12,24 @@
             <directory name="vendor" />
         </ignoreFiles>
     </projectFiles>
+
+    <issueHandlers>
+        <MissingClosureReturnType>
+            <errorLevel type="suppress">
+                <directory name="src" />
+            </errorLevel>
+        </MissingClosureReturnType>
+
+        <InaccessibleMethod>
+            <errorLevel type="suppress">
+                <file name="src/Internal/cluster-runner.php" />
+            </errorLevel>
+        </InaccessibleMethod>
+
+        <UnresolvableInclude>
+            <errorLevel type="suppress">
+                <file name="src/Internal/cluster-runner.php" />
+            </errorLevel>
+        </UnresolvableInclude>
+    </issueHandlers>
 </psalm>

@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster\Internal;
 
+use Amp\ByteStream\ResourceStream;
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
 use Amp\Future;
@@ -42,11 +43,16 @@ return static function (Channel $channel) use ($argc, $argv): void {
         throw new \RuntimeException("Could not connect to IPC socket", 0, $exception);
     }
 
-    try {
-        (static fn () => Cluster::init($channel, $transferSocket))->bindTo(null, Cluster::class)();
+    if (!$transferSocket instanceof ResourceStream) {
+        throw new \TypeError('Socket connector must return an instance of ' . ResourceStream::class
+            . ' in order to be used to transfer other sockets');
+    }
 
+    try {
+        /** @psalm-suppress InvalidArgument */
         Future\await([
-            async((static fn () => Cluster::run())->bindTo(null, Cluster::class)),
+            async((static fn () => Cluster::run($channel, $transferSocket))->bindTo(null, Cluster::class)
+                ?: throw new \RuntimeException('Unable to bind closure')),
 
             /* Protect current scope by requiring script within another function.
              * Using $argc so it is available to the required script. */

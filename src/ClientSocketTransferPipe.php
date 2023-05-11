@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\Closable;
 use Amp\Serialization\NativeSerializer;
@@ -17,7 +18,7 @@ final class ClientSocketTransferPipe implements Closable
     private readonly StreamResourceSendPipe $send;
 
     public function __construct(
-        Socket $socket,
+        Socket&ResourceStream $socket,
         Serializer $serializer = new NativeSerializer(),
     ) {
         $this->receive = new StreamResourceReceivePipe($socket, $serializer);
@@ -46,7 +47,7 @@ final class ClientSocketTransferPipe implements Closable
         return [ResourceSocket::fromServerSocket($resource, $chunkSize), $data];
     }
 
-    public function send(Socket $socket, mixed $data = null): void
+    public function send(Socket&ResourceStream $socket, mixed $data = null): void
     {
         $resource = $socket->getResource();
         if (!\is_resource($resource)) {

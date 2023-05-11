@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
@@ -18,12 +19,12 @@ use function Amp\async;
 
 final class ClusterServerSocketFactory implements ServerSocketFactory
 {
-    /** @var Channel<never, SocketAddress|null> */
+    /** @var Channel<never, SocketAddress|string|null> */
     private readonly Channel $channel;
 
     private readonly StreamResourceReceivePipe $pipe;
 
-    public function __construct(Socket $socket)
+    public function __construct(Socket&ResourceStream $socket)
     {
         $serializer = new NativeSerializer();
         $this->channel = new StreamChannel($socket, $socket, $serializer);
@@ -54,8 +55,7 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
         } catch (ChannelException|SerializationException $exception) {
             throw new SocketException(
                 'Failed sending request to bind server socket: ' . $exception->getMessage(),
-                0,
-                $exception,
+                previous: $exception,
             );
         }
 
@@ -64,6 +64,10 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
         [$stream] = $received;
 
         $socket = \socket_import_stream($stream);
+        if (!$socket) {
+            throw new SocketException('Failed to import stream from socket');
+        }
+
         \socket_listen($socket, $context["socket"]["backlog"] ?? 0);
 
         $stream = \socket_export_stream($socket);

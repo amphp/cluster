@@ -3,6 +3,7 @@
 namespace Amp\Cluster;
 
 use Amp\ByteStream\PendingReadError;
+use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Closable;
@@ -22,7 +23,7 @@ final class StreamResourceReceivePipe implements Closable
     private readonly \SplQueue $receiveQueue;
 
     public function __construct(
-        private readonly Socket $socket,
+        private readonly Socket&ResourceStream $socket,
         private readonly Serializer $serializer,
     ) {
         $transferSocket = new Internal\TransferSocket($socket);
@@ -61,8 +62,7 @@ final class StreamResourceReceivePipe implements Closable
                     $socket->close();
                     $suspension?->resume(static fn () => throw new SocketException(
                         'The transfer socket threw an exception: ' . $exception->getMessage(),
-                        0,
-                        $exception,
+                        previous: $exception,
                     ));
                 }
 
@@ -106,7 +106,7 @@ final class StreamResourceReceivePipe implements Closable
     public function receive(?Cancellation $cancellation = null): ?array
     {
         if ($this->waiting !== null) {
-            throw new PendingReadError;
+            throw new PendingReadError();
         }
 
         if ($this->socket->isClosed()) {

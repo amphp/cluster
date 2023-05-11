@@ -34,7 +34,8 @@ function countCpuCores(): int
             break;
     }
 
-    $execResult = $cmd ? \shell_exec($cmd) : 1;
+    /** @psalm-suppress ForbiddenCode */
+    $execResult = $cmd ? (string) \shell_exec($cmd) : '1';
 
     if ($os === 'win') {
         $execResult = \explode("\n", $execResult)[1];
@@ -67,7 +68,9 @@ function canReusePort(): bool
         case "linux":
             // We determine support based on Kernel version.
             // We don't care about backports, as socket transfer works fine, too.
-            $version = \trim(\shell_exec('uname -r'));
+            /** @psalm-suppress ForbiddenCode */
+            $version = (string) \shell_exec('uname -r');
+            $version = \trim($version);
             $version = \implode(".", \array_slice(\explode(".", $version), 0, 2));
             $canReusePort = \version_compare($version, '3.9', '>=');
             break;

@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster\Internal;
 
+use Amp\ByteStream\ResourceStream;
 use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 use Socket as SocketResource;
@@ -13,7 +14,7 @@ final class TransferSocket
 
     private readonly \Closure $errorHandler;
 
-    public function __construct(Socket $socket)
+    public function __construct(Socket&ResourceStream $socket)
     {
         if (!\extension_loaded('sockets')) {
             throw new \Error('ext-sockets is required for ' . self::class);
@@ -90,6 +91,7 @@ final class TransferSocket
      */
     public function sendSocket($stream, string $data): bool
     {
+        /** @psalm-suppress DocblockTypeContradiction */
         if (!\is_resource($stream)) {
             throw new SocketException('The stream resource closed before being transferred');
         }

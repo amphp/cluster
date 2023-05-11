@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ResourceStream;
 use Amp\Closable;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
@@ -20,7 +21,7 @@ final class StreamResourceSendPipe implements Closable
     private readonly string $onWritable;
 
     public function __construct(
-        private readonly Socket $socket,
+        private readonly Socket&ResourceStream $socket,
         private readonly Serializer $serializer,
     ) {
         $this->transferSocket = $transferSocket = new Internal\TransferSocket($socket);
@@ -59,8 +60,7 @@ final class StreamResourceSendPipe implements Closable
                     } catch (\Throwable $exception) {
                         $suspension->resume(static fn () => throw new SocketException(
                             'Failed to send socket: ' . $exception->getMessage(),
-                            0,
-                            $exception,
+                            previous: $exception,
                         ));
                     }
                 }

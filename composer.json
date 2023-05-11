@@ -36,8 +36,8 @@
         "amphp/parallel": "^2",
         "amphp/socket": "^2",
         "league/climate": "^3",
-        "monolog/monolog": "^2 || ^1.23",
-        "psr/log": "^1"
+        "monolog/monolog": "^3|^2|^1.23",
+        "psr/log": "^3|^2|^1"
     },
     "require-dev": {
         "ext-sockets": "*",
@@ -46,7 +46,7 @@
         "amphp/phpunit-util": "^3",
         "amphp/php-cs-fixer-config": "^2",
         "phpunit/phpunit": "^9",
-        "psalm/phar": "^4.24"
+        "psalm/phar": "^5.11"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,

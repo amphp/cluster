@@ -25,8 +25,12 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
 
     private int $lastActivity;
 
-    private ?DeferredCancellation $deferredCancellation = null;
+    private readonly DeferredCancellation $deferredCancellation;
 
+    /**
+     * @param ProcessContext<mixed, ClusterMessage|null, ClusterMessage|null> $context
+     * @param \Closure(mixed):void $onData
+     */
     public function __construct(
         private readonly int $id,
         private readonly ProcessContext $context,
@@ -35,6 +39,7 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
         private readonly Logger $logger,
     ) {
         $this->lastActivity = \time();
+        $this->deferredCancellation = new DeferredCancellation();
     }
 
     public function getId(): int
@@ -49,8 +54,6 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
 
     public function run(): void
     {
-        $this->deferredCancellation = new DeferredCancellation;
-
         $watcher = EventLoop::repeat(self::PING_TIMEOUT / 4, weakClosure(function (): void {
             if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
                 $this->shutdown();
@@ -69,6 +72,7 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
             while ($message = $this->context->receive($this->deferredCancellation->getCancellation())) {
                 $this->lastActivity = \time();
 
+                /** @psalm-suppress UnhandledMatchCondition False positive. */
                 match ($message->type) {
                     ClusterMessageType::Pong => null,
 
@@ -103,7 +107,8 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
                     // Ignore if the worker has already exited
                 }
                 try {
-                    $future = new DeferredFuture;
+                    $future = new DeferredFuture();
+                    /** @psalm-suppress InvalidArgument */
                     $this->deferredCancellation->getCancellation()->subscribe($future->complete(...));
                     $future->getFuture()->await($cancellation);
                 } catch (CancelledException) {

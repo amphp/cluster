@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Cluster\Internal\ClusterLogHandler;
@@ -18,9 +19,15 @@ use Amp\Socket\Socket;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use Monolog\Handler\HandlerInterface;
+use Monolog\Level;
 use Psr\Log\LogLevel;
 use function Amp\trapSignal;
 
+/**
+ * @template-covariant TReceive
+ * @template TSend
+ * @implements Channel<TReceive, TSend>
+ */
 final class Cluster implements Channel
 {
     private static ?self $cluster = null;
@@ -57,13 +64,14 @@ final class Cluster implements Channel
     /**
      * Creates a log handler in worker processes that communicates log messages to the parent.
      *
-     * @param string $logLevel Log level for the IPC handler
+     * @param value-of<Level::NAMES>|value-of<Level::VALUES>|Level|LogLevel::* $logLevel Log level for the IPC handler
      * @param bool $bubble Bubble flag for the IPC handler
      *
-     *
      * @throws \Error Thrown if not running as a worker.
+     *
+     * @psalm-suppress MismatchingDocblockParamType, PossiblyInvalidArgument, UnresolvableConstant
      */
-    public static function createLogHandler(string $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface
+    public static function createLogHandler(int|string|Level $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface
     {
         if (!self::$cluster) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
@@ -96,13 +104,9 @@ final class Cluster implements Channel
         }
     }
 
-    private static function init(Channel $channel, Socket $transferSocket): void
+    private static function run(Channel $channel, Socket&ResourceStream $transferSocket): void
     {
         self::$cluster = new self($channel, new ClusterServerSocketFactory($transferSocket));
-    }
-
-    private static function run(): void
-    {
         self::$cluster->loop(new SignalCancellation(self::getSignalList()));
     }
 
@@ -124,6 +128,7 @@ final class Cluster implements Channel
     ) {
         $this->queue = new Queue();
         $this->iterator = $this->queue->iterate();
+        $this->loopCancellation = new DeferredCancellation;
     }
 
     public function receive(?Cancellation $cancellation = null): mixed
@@ -161,7 +166,6 @@ final class Cluster implements Channel
 
     private function loop(Cancellation $cancellation): void
     {
-        $this->loopCancellation = new DeferredCancellation;
         $abortCancellation = new CompositeCancellation($this->loopCancellation->getCancellation(), $cancellation);
 
         try {
