@@ -19,7 +19,7 @@ use function Amp\async;
 
 final class ClusterServerSocketFactory implements ServerSocketFactory
 {
-    /** @var Channel<never, SocketAddress|string|null> */
+    /** @var Channel<never, SocketAddress|null> */
     private readonly Channel $channel;
 
     private readonly StreamResourceReceivePipe $pipe;
@@ -44,13 +44,17 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
     public function listen(SocketAddress|string $address, ?BindContext $bindContext = null): ServerSocket
     {
         $bindContext ??= new BindContext();
+        if (!$address instanceof SocketAddress) {
+            // Normalize to SocketAddress here to avoid throwing exception for invalid strings at receiving end.
+            $address = SocketAddress\fromString($address);
+        }
 
         try {
             $this->channel->send($address);
 
             $received = $this->pipe->receive();
             if (!$received) {
-                throw new SocketException('Transfer pipe closed server socket was received');
+                throw new SocketException('Transfer pipe closed before server socket was received');
             }
         } catch (ChannelException|SerializationException $exception) {
             throw new SocketException(

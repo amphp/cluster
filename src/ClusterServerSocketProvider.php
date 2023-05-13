@@ -42,7 +42,7 @@ final class ClusterServerSocketProvider
      */
     public function provideFor(Socket&ResourceStream $socket, ?Cancellation $cancellation = null): Future
     {
-        /** @var Channel<SocketAddress|string|null, never> $channel */
+        /** @var Channel<SocketAddress|null, never> $channel */
         $channel = new StreamChannel($socket, $socket, $this->serializer);
         $pipe = new StreamResourceSendPipe($socket, $this->serializer);
 
@@ -51,10 +51,8 @@ final class ClusterServerSocketProvider
         return async(static function () use (&$servers, $channel, $pipe, $bindContext, $cancellation): void {
             try {
                 while ($address = $channel->receive($cancellation)) {
-                    $uri = (string) $address;
-
                     /** @psalm-suppress DocblockTypeContradiction Extra manual check to enforce docblock types. */
-                    if (!$address instanceof SocketAddress && !\is_string($address)) {
+                    if (!$address instanceof SocketAddress) {
                         throw new \ValueError(\sprintf(
                             'Expected only instances of %s on channel; do not use the given socket outside %s',
                             SocketAddress::class,
@@ -62,7 +60,8 @@ final class ClusterServerSocketProvider
                         ));
                     }
 
-                    $server = $servers[$uri] ??= self::listen((string) $address, $bindContext);
+                    $uri = (string) $address;
+                    $server = $servers[$uri] ??= self::listen($uri, $bindContext);
 
                     $pipe->send($server, $address);
                 }
