@@ -71,8 +71,10 @@ final class Cluster implements Channel
      *
      * @psalm-suppress MismatchingDocblockParamType, PossiblyInvalidArgument, UnresolvableConstant
      */
-    public static function createLogHandler(int|string|Level $logLevel = LogLevel::DEBUG, bool $bubble = false): HandlerInterface
-    {
+    public static function createLogHandler(
+        int|string|Level $logLevel = LogLevel::DEBUG,
+        bool $bubble = false,
+    ): HandlerInterface {
         if (!self::$cluster) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
                 "Create your own log handler when not running as part of a cluster. " .
@@ -184,7 +186,7 @@ final class Cluster implements Channel
                     ClusterMessageType::Data => $this->queue->push($message->data),
 
                     ClusterMessageType::Pong,
-                    ClusterMessageType::Log => throw new \RuntimeException(),
+                    ClusterMessageType::Log => throw new \RuntimeException('Unexpected message type received'),
                 };
             }
         } catch (CancelledException | ChannelException) {

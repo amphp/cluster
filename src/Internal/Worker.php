@@ -68,7 +68,8 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
         }));
 
         try {
-            // We get null as last message from the cluster-runner in case it's shutting down cleanly. In that case, join it.
+            // We get null as last message from the cluster-runner in case it's shutting down cleanly.
+            // In that case, join it.
             while ($message = $this->context->receive($this->deferredCancellation->getCancellation())) {
                 $this->lastActivity = \time();
 
@@ -83,14 +84,17 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
                         $this->logger->getHandlers(),
                     ),
 
-                    ClusterMessageType::Ping => throw new \RuntimeException(),
+                    ClusterMessageType::Ping => throw new \RuntimeException('Unexpected message type received'),
                 };
             }
 
             // Avoid immediate shutdown thanks to race condition with ping-watcher
             EventLoop::cancel($watcher);
 
-            $this->context->join(new CompositeCancellation($this->deferredCancellation->getCancellation(), new TimeoutCancellation(Watcher::WORKER_TIMEOUT)));
+            $this->context->join(new CompositeCancellation(
+                $this->deferredCancellation->getCancellation(),
+                new TimeoutCancellation(Watcher::WORKER_TIMEOUT),
+            ));
         } finally {
             EventLoop::cancel($watcher);
             $this->shutdown();

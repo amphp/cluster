@@ -27,13 +27,14 @@ final class Watcher
     private bool $running = false;
 
     /** @var non-empty-list<string> */
-    private array $script;
+    private readonly array $script;
 
     private int $nextId = 1;
 
     /** @var Internal\Worker[] */
     private array $workers = [];
-    /** @var Future[] */
+
+    /** @var Future<void>[] */
     private array $workerFutures = [];
 
     /** @var list<\Closure(mixed):void> */
@@ -258,8 +259,8 @@ final class Watcher
     /**
      * Stops the cluster.
      *
-     * @param Cancellation|null $cancellation Token to request cancellation of waiting for shutdown. When cancelled, the workers are forcefully killed.
-     * If null, the workers are killed immediately.
+     * @param Cancellation|null $cancellation Token to request cancellation of waiting for shutdown.
+     * When cancelled, the workers are forcefully killed. If null, the workers are killed immediately.
      */
     public function stop(?Cancellation $cancellation = null): void
     {
@@ -278,7 +279,8 @@ final class Watcher
                 } catch (ContextException) {
                     // Ignore if the worker has already died unexpectedly.
                 }
-                // We need to avoid this future here, otherwise we may not log things properly if the event-loop exits immediately after
+                // We need to await this future here, otherwise we may not log things properly if the
+                // event-loop exits immediately after.
                 $future->await();
             });
         }
