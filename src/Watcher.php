@@ -12,6 +12,7 @@ use Amp\Future;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\ProcessContext;
 use Amp\Parallel\Ipc\IpcHub;
+use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
 use Monolog\Logger;
 use Revolt\EventLoop;
@@ -125,6 +126,15 @@ final class Watcher
                 }
 
                 throw new ClusterException("Starting the cluster worker failed", previous: $exception);
+            }
+
+            if (!$socket instanceof ResourceStream) {
+                throw new \TypeError(\sprintf(
+                    "The %s instance returned from %s must also implement %s",
+                    Socket::class,
+                    \get_class($this->hub),
+                    ResourceStream::class,
+                ));
             }
 
             $worker = new Internal\Worker(
