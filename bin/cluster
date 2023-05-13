@@ -102,7 +102,7 @@ $args = [
         "longPrefix" => "shutdown-timeout",
         "description" => "Shutdown timeout in seconds",
         "castTo" => "float",
-        "defaultValue" => 1
+        "defaultValue" => 1,
     ],
     "name" => [
         "prefix" => "n",
@@ -199,8 +199,7 @@ $logger = new Logger("cluster-" . getmypid());
 $logger->pushHandler($logHandler);
 
 $workers = $arguments->get("workers");
-$shutdown_timeout = $arguments->get("shutdown-timeout");
-
+$shutdownTimeout = $arguments->get("shutdown-timeout");
 $script = $arguments->get("script");
 
 if (!is_file($script)) {
@@ -218,28 +217,18 @@ array_unshift($workerArguments, $arguments->get("script"));
 $watcher = new Watcher($workerArguments, new LocalIpcHub, $logger);
 
 try {
-    $signals = Cluster::getSignalList();
-
-    $signalHandler = function (string $watcherId, int $signalNumber) use (
-        $watcher,
-        $logger,
-        $shutdown_timeout
-    ): void {
+    $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger, $shutdownTimeout): void {
         EventLoop::cancel($watcherId);
 
         $logger->info(sprintf('Stopping cluster due to received signal: %d', $signalNumber));
-        $watcher->stop($shutdown_timeout == 0 ? null : new TimeoutCancellation($shutdown_timeout));
+        $watcher->stop($shutdownTimeout > 0 ? new TimeoutCancellation($shutdownTimeout) : null);
     };
 
-    array_walk(
-        $signals,
-        fn (int $signo) => EventLoop::unreference(EventLoop::onSignal($signo, $signalHandler))
-    );
+    foreach (Cluster::getSignalList() as $signo) {
+        EventLoop::unreference(EventLoop::onSignal($signo, $signalHandler));
+    }
 
-    $signalHandler = function (string $watcherId, int $signalNumber) use (
-        $watcher,
-        $logger
-    ): void {
+    $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger): void {
         EventLoop::disable($watcherId);
 
         $logger->info(sprintf('Restarting cluster due to received signal: %d', $signalNumber));
