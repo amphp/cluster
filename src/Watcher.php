@@ -18,6 +18,10 @@ use Monolog\Logger;
 use Revolt\EventLoop;
 use function Amp\async;
 
+/**
+ * @template TReceive
+ * @template TSend
+ */
 final class Watcher
 {
     public const WORKER_TIMEOUT = 5;
@@ -31,13 +35,13 @@ final class Watcher
 
     private int $nextId = 1;
 
-    /** @var Internal\Worker[] */
+    /** @var array<int, Internal\ProcessWorker<TReceive, TSend>> */
     private array $workers = [];
 
     /** @var Future<void>[] */
     private array $workerFutures = [];
 
-    /** @var list<\Closure(mixed):void> */
+    /** @var list<\Closure(TReceive, Worker):void> */
     private array $onMessage = [];
 
     private ?DeferredFuture $deferred = null;
@@ -68,13 +72,13 @@ final class Watcher
     }
 
     /**
-     * Attaches a callback to be invoked when a message is received from a worker process.
+     * Attaches a callback to be invoked when a message is received from any worker process.
      *
-     * @param \Closure(mixed):void $callback
+     * @param \Closure(TReceive, Worker):void $onMessage
      */
-    public function onMessage(\Closure $callback): void
+    public function onMessage(\Closure $onMessage): void
     {
-        $this->onMessage[] = $callback;
+        $this->onMessage[] = $onMessage;
     }
 
     /**
@@ -138,11 +142,10 @@ final class Watcher
                 ));
             }
 
-            $worker = new Internal\Worker(
+            $worker = new Internal\ProcessWorker(
                 $id,
                 $context,
                 $socket,
-                $this->handleMessage(...),
                 $this->logger,
             );
 
@@ -197,6 +200,8 @@ final class Watcher
                 }
             });
 
+            $worker->onMessage(fn (mixed $data) => $this->handleMessage($data, $this->workers[$id]));
+
             $this->workers[$id] = $worker;
         });
     }
@@ -231,7 +236,7 @@ final class Watcher
     /**
      * Returns an array of all workers, mapped by their ID.
      *
-     * @return Worker[]
+     * @return array<int, Worker>
      */
     public function getWorkers(): array
     {
@@ -314,6 +319,8 @@ final class Watcher
 
     /**
      * Broadcast data to all workers, sending data to active Cluster::getChannel()->receive() listeners.
+     *
+     * @param TSend $data
      */
     public function broadcast(mixed $data): void
     {
@@ -322,10 +329,13 @@ final class Watcher
         }
     }
 
-    private function handleMessage(mixed $data): void
+    /**
+     * @param TReceive $data
+     */
+    private function handleMessage(mixed $data, Worker $worker): void
     {
-        foreach ($this->onMessage as $callback) {
-            async($callback, $data);
+        foreach ($this->onMessage as $onMessage) {
+            EventLoop::queue($onMessage, $data, $worker);
         }
     }
 }

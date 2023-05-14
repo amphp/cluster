@@ -5,6 +5,7 @@ namespace Amp\Cluster\Internal;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Cluster\Watcher;
+use Amp\Cluster\Worker;
 use Amp\CompositeCancellation;
 use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
@@ -16,26 +17,34 @@ use Monolog\Handler\HandlerInterface as MonologHandler;
 use Monolog\Logger;
 use Psr\Log\AbstractLogger;
 use Revolt\EventLoop;
+use function Amp\async;
 use function Amp\weakClosure;
 
-/** @internal */
-final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
+/**
+ * @template TReceive
+ * @template TSend
+ *
+ * @implements Worker<TReceive, TSend>
+ *
+ * @internal
+ */
+final class ProcessWorker extends AbstractLogger implements Worker
 {
     private const PING_TIMEOUT = 10;
 
     private int $lastActivity;
 
+    private array $onMessage = [];
+
     private readonly DeferredCancellation $deferredCancellation;
 
     /**
      * @param ProcessContext<mixed, ClusterMessage|null, ClusterMessage|null> $context
-     * @param \Closure(mixed):void $onData
      */
     public function __construct(
         private readonly int $id,
         private readonly ProcessContext $context,
         private readonly Socket $socket,
-        private readonly \Closure $onData,
         private readonly Logger $logger,
     ) {
         $this->lastActivity = \time();
@@ -45,6 +54,11 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
     public function getId(): int
     {
         return $this->id;
+    }
+
+    public function onMessage(\Closure $onMessage): void
+    {
+        $this->onMessage[] = $onMessage;
     }
 
     public function send(mixed $data): void
@@ -70,6 +84,7 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
         try {
             // We get null as last message from the cluster-runner in case it's shutting down cleanly.
             // In that case, join it.
+            /** @var ClusterMessage $message */
             while ($message = $this->context->receive($this->deferredCancellation->getCancellation())) {
                 $this->lastActivity = \time();
 
@@ -77,7 +92,7 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
                 match ($message->type) {
                     ClusterMessageType::Pong => null,
 
-                    ClusterMessageType::Data => ($this->onData)($message->data),
+                    ClusterMessageType::Data => $this->handleMessage($message->data),
 
                     ClusterMessageType::Log => \array_map(
                         static fn (MonologHandler $handler) => $handler->handle($message->data),
@@ -139,5 +154,12 @@ final class Worker extends AbstractLogger implements \Amp\Cluster\Worker
             $context,
             ['id' => $this->id, 'pid' => $this->context->getPid()],
         ));
+    }
+
+    private function handleMessage(mixed $data): void
+    {
+        foreach ($this->onMessage as $onMessage) {
+            async($onMessage, $data);
+        }
     }
 }
