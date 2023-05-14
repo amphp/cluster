@@ -14,12 +14,15 @@ use Amp\Socket\SocketException;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
 
+/**
+ * @template T
+ */
 final class StreamResourceReceivePipe implements Closable
 {
     /** @var Suspension<null|\Closure():never>|null */
     private ?Suspension $waiting = null;
 
-    /** @var \SplQueue<array{resource, string}> */
+    /** @var \SplQueue<TransferredResource<string>> */
     private readonly \SplQueue $receiveQueue;
 
     public function __construct(
@@ -97,13 +100,13 @@ final class StreamResourceReceivePipe implements Closable
     }
 
     /**
-     * @return array{resource, mixed}|null Tuple of the received stream-socket resource and the data sent or null
-     *  if the transfer pipe is closed.
+     * @return TransferredResource<T>|null Object containing the received stream-socket resource and the data sent
+     * or null if the transfer pipe is closed.
      *
      * @throws SocketException
      * @throws SerializationException
      */
-    public function receive(?Cancellation $cancellation = null): ?array
+    public function receive(?Cancellation $cancellation = null): ?TransferredResource
     {
         if ($this->waiting !== null) {
             throw new PendingReadError();
@@ -134,8 +137,12 @@ final class StreamResourceReceivePipe implements Closable
 
         \assert(!$this->receiveQueue->isEmpty(), 'Queue of received sockets was empty after suspending!');
 
-        [$import, $data] = $this->receiveQueue->shift();
+        /** @var TransferredResource<string> $transferred */
+        $transferred = $this->receiveQueue->shift();
 
-        return [$import, $this->serializer->unserialize($data)];
+        return new TransferredResource(
+            $transferred->getResource(),
+            $this->serializer->unserialize($transferred->getData()),
+        );
     }
 }

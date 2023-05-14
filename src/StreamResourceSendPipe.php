@@ -11,11 +11,14 @@ use Amp\Socket\SocketException;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
 
+/**
+ * @template T
+ */
 final class StreamResourceSendPipe implements Closable
 {
     private readonly Internal\TransferSocket $transferSocket;
 
-    /** @var \SplQueue<array{Suspension<null|Closure():never>, resource, string}> */
+    /** @var \SplQueue<array{Suspension<null|\Closure():never>, resource, string}> */
     private readonly \SplQueue $transferQueue;
 
     private readonly string $onWritable;
@@ -46,7 +49,7 @@ final class StreamResourceSendPipe implements Closable
 
                 while (!$transferQueue->isEmpty()) {
                     /**
-                     * @var Suspension<null|Closure():never> $suspension
+                     * @var Suspension<null|\Closure():never> $suspension
                      * @var resource $export
                      * @var string $data
                      */
@@ -73,7 +76,7 @@ final class StreamResourceSendPipe implements Closable
             EventLoop::cancel($onWritable);
 
             while (!$transferQueue->isEmpty()) {
-                /** @var Suspension<null|Closure():never> $suspension */
+                /** @var Suspension<null|\Closure():never> $suspension */
                 [$suspension] = $transferQueue->dequeue();
                 $suspension->resume(
                     static fn () => throw new SocketException('The transfer socket closed unexpectedly')
@@ -104,6 +107,7 @@ final class StreamResourceSendPipe implements Closable
 
     /**
      * @param resource $stream
+     * @param T $data
      *
      * @throws SocketException
      * @throws SerializationException
@@ -113,7 +117,7 @@ final class StreamResourceSendPipe implements Closable
         $serialized = $this->serializer->serialize($data);
 
         if (!$this->transferQueue->isEmpty() || !$this->transferSocket->sendSocket($stream, $serialized)) {
-            /** @var Suspension<null|Closure():never> $suspension */
+            /** @var Suspension<null|\Closure():never> $suspension */
             $suspension = EventLoop::getSuspension();
             $this->transferQueue->push([$suspension, $stream, $serialized]);
             EventLoop::enable($this->onWritable);

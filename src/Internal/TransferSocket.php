@@ -3,6 +3,7 @@
 namespace Amp\Cluster\Internal;
 
 use Amp\ByteStream\ResourceStream;
+use Amp\Cluster\TransferredResource;
 use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 use Socket as SocketResource;
@@ -35,13 +36,13 @@ final class TransferSocket
     }
 
     /**
-     * @return array{resource, string}|null
+     * @return TransferredResource<string>|null
      *
      * @throws SocketException
      *
      * @psalm-suppress InvalidArrayOffset $data array is overwritten by socket_recvmsg().
      */
-    public function receiveSocket(): ?array
+    public function receiveSocket(): ?TransferredResource
     {
         $data = ["controllen" => \socket_cmsg_space(\SOL_SOCKET, \SCM_RIGHTS) + 4];
 
@@ -78,7 +79,7 @@ final class TransferSocket
             throw new SocketException('Failed to import socket to a stream socket resource');
         }
 
-        return [$transferredStream, $transferredData];
+        return new TransferredResource($transferredStream, $transferredData);
     }
 
     /**

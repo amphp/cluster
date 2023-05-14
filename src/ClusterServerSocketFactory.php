@@ -22,6 +22,7 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
     /** @var Channel<never, SocketAddress|null> */
     private readonly Channel $channel;
 
+    /** @var StreamResourceReceivePipe<never> */
     private readonly StreamResourceReceivePipe $pipe;
 
     public function __construct(Socket&ResourceStream $socket)
@@ -65,7 +66,7 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
 
         $context = $bindContext->toStreamContextArray();
 
-        [$stream] = $received;
+        $stream = $received->getResource();
 
         $socket = \socket_import_stream($stream);
         if (!$socket) {

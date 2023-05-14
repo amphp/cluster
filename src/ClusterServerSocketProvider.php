@@ -44,6 +44,7 @@ final class ClusterServerSocketProvider
     {
         /** @var Channel<SocketAddress|null, never> $channel */
         $channel = new StreamChannel($socket, $socket, $this->serializer);
+        /** @var StreamResourceSendPipe<SocketAddress> $pipe */
         $pipe = new StreamResourceSendPipe($socket, $this->serializer);
 
         $servers = &$this->servers;

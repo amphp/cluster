@@ -12,9 +12,16 @@ use Amp\Socket\ResourceSocket;
 use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 
+/**
+ * @template TReceive
+ * @template TSend
+ */
 final class ClientSocketTransferPipe implements Closable
 {
+    /** @var StreamResourceReceivePipe<TReceive> */
     private readonly StreamResourceReceivePipe $receive;
+
+    /** @var StreamResourceSendPipe<TSend> */
     private readonly StreamResourceSendPipe $send;
 
     public function __construct(
@@ -28,7 +35,7 @@ final class ClientSocketTransferPipe implements Closable
     /**
      * @param positive-int $chunkSize
      *
-     * @return array{Socket, mixed}|null
+     * @return TransferredSocket<TReceive>|null
      *
      * @throws SerializationException
      * @throws SocketException
@@ -36,17 +43,24 @@ final class ClientSocketTransferPipe implements Closable
     public function receive(
         ?Cancellation $cancellation = null,
         int $chunkSize = ResourceSocket::DEFAULT_CHUNK_SIZE,
-    ): ?array {
+    ): ?TransferredSocket {
         $received = $this->receive->receive($cancellation);
         if (!$received) {
             return null;
         }
 
-        [$resource, $data] = $received;
-
-        return [ResourceSocket::fromServerSocket($resource, $chunkSize), $data];
+        return new TransferredSocket(
+            ResourceSocket::fromServerSocket($received->getResource(), $chunkSize),
+            $received->getData(),
+        );
     }
 
+    /**
+     * @param TSend $data
+     *
+     * @throws SerializationException
+     * @throws SocketException
+     */
     public function send(Socket&ResourceStream $socket, mixed $data = null): void
     {
         $resource = $socket->getResource();
