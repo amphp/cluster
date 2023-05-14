@@ -43,12 +43,12 @@ return static function (Channel $channel) use ($argc, $argv): void {
         throw new \RuntimeException("Could not connect to IPC socket", 0, $exception);
     }
 
-    if (!$transferSocket instanceof ResourceStream) {
-        throw new \TypeError('Socket connector must return an instance of ' . ResourceStream::class
-            . ' in order to be used to transfer other sockets');
-    }
-
     try {
+        if (!$transferSocket instanceof ResourceStream) {
+            throw new \TypeError('Socket connector must return an instance of ' . ResourceStream::class
+                . ' in order to be used to transfer other sockets');
+        }
+
         /** @psalm-suppress InvalidArgument */
         Future\await([
             async((static fn () => Cluster::run($channel, $transferSocket))->bindTo(null, Cluster::class)
@@ -61,7 +61,7 @@ return static function (Channel $channel) use ($argc, $argv): void {
             }),
         ]);
     } finally {
-        $transferSocket->close();
         $channel->send(null);
+        $transferSocket->close();
     }
 };

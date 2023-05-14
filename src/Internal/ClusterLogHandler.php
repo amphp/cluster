@@ -24,7 +24,7 @@ final class ClusterLogHandler extends AbstractProcessingHandler
     }
 
     /**
-     * @param array|LogRecord $record Array for Monolog v1.x or 2.x and LogRecord for v3.x.
+     * @param array|LogRecord $record Array for Monolog v1.x or 2.x and {@see LogRecord} for v3.x.
      */
     protected function write(array|LogRecord $record): void
     {

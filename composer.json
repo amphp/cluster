@@ -33,7 +33,7 @@
         "amphp/amp": "^3",
         "amphp/byte-stream": "^2",
         "amphp/log": "^2",
-        "amphp/parallel": "^2",
+        "amphp/parallel": "^2.2",
         "amphp/socket": "^2",
         "league/climate": "^3",
         "monolog/monolog": "^3|^2|^1.23",

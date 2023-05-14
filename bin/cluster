@@ -7,8 +7,8 @@ use Amp\Cluster\Watcher;
 use Amp\File;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
-use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\TimeoutCancellation;
+use League\CLImate\Argument\Manager as CliArgumentManager;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
@@ -127,7 +127,7 @@ foreach ($args as $arg) {
     }
 }
 
-$arguments = new League\CLImate\Argument\Manager;
+$arguments = new CliArgumentManager();
 $arguments->add($args);
 
 try {
@@ -214,7 +214,7 @@ if (isset($pidFilePath)) {
 }
 
 array_unshift($workerArguments, $arguments->get("script"));
-$watcher = new Watcher($workerArguments, new LocalIpcHub, $logger);
+$watcher = new Watcher($workerArguments, $logger);
 
 try {
     $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger, $shutdownTimeout): void {

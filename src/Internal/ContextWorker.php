@@ -6,9 +6,9 @@ use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Cluster\Watcher;
 use Amp\Cluster\Worker;
-use Amp\CompositeCancellation;
 use Amp\DeferredCancellation;
-use Amp\DeferredFuture;
+use Amp\Future;
+use Amp\Parallel\Context\Context;
 use Amp\Parallel\Context\ProcessContext;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
@@ -28,27 +28,29 @@ use function Amp\weakClosure;
  *
  * @internal
  */
-final class ProcessWorker extends AbstractLogger implements Worker
+final class ContextWorker extends AbstractLogger implements Worker
 {
     private const PING_TIMEOUT = 10;
 
     private int $lastActivity;
 
+    /** @var list<\Closure(TReceive):void> */
     private array $onMessage = [];
 
-    private readonly DeferredCancellation $deferredCancellation;
+    private readonly Future $joinFuture;
 
     /**
-     * @param ProcessContext<mixed, ClusterMessage|null, ClusterMessage|null> $context
+     * @param Context<mixed, ClusterMessage|null, ClusterMessage|null> $context
      */
     public function __construct(
         private readonly int $id,
-        private readonly ProcessContext $context,
+        private readonly Context $context,
         private readonly Socket $socket,
+        private readonly DeferredCancellation $deferredCancellation,
         private readonly Logger $logger,
     ) {
         $this->lastActivity = \time();
-        $this->deferredCancellation = new DeferredCancellation();
+        $this->joinFuture = async($this->context->join(...));
     }
 
     public function getId(): int
@@ -68,24 +70,26 @@ final class ProcessWorker extends AbstractLogger implements Worker
 
     public function run(): void
     {
-        $watcher = EventLoop::repeat(self::PING_TIMEOUT / 4, weakClosure(function (): void {
+        $watcher = EventLoop::repeat(self::PING_TIMEOUT / 2, weakClosure(function (): void {
             if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
-                $this->shutdown();
+                $this->close();
                 return;
             }
 
             try {
                 $this->context->send(new ClusterMessage(ClusterMessageType::Ping, 0));
             } catch (\Throwable) {
-                $this->shutdown();
+                $this->close();
             }
         }));
+
+        $cancellation = $this->deferredCancellation->getCancellation();
 
         try {
             // We get null as last message from the cluster-runner in case it's shutting down cleanly.
             // In that case, join it.
             /** @var ClusterMessage $message */
-            while ($message = $this->context->receive($this->deferredCancellation->getCancellation())) {
+            while ($message = $this->context->receive($cancellation)) {
                 $this->lastActivity = \time();
 
                 /** @psalm-suppress UnhandledMatchCondition False positive. */
@@ -103,57 +107,50 @@ final class ProcessWorker extends AbstractLogger implements Worker
                 };
             }
 
-            // Avoid immediate shutdown thanks to race condition with ping-watcher
-            EventLoop::cancel($watcher);
-
-            $this->context->join(new CompositeCancellation(
-                $this->deferredCancellation->getCancellation(),
-                new TimeoutCancellation(Watcher::WORKER_TIMEOUT),
-            ));
+            $this->joinFuture->await(new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
         } finally {
             EventLoop::cancel($watcher);
-            $this->shutdown();
+            $this->close();
         }
+    }
+
+    private function close(): void
+    {
+        $this->socket->close();
+        $this->context->close();
+
+        $this->deferredCancellation->cancel();
     }
 
     public function shutdown(?Cancellation $cancellation = null): void
     {
         try {
-            if ($cancellation) {
+            if (!$this->context->isClosed()) {
                 try {
                     $this->context->send(null);
                 } catch (ChannelException) {
                     // Ignore if the worker has already exited
                 }
-                try {
-                    $future = new DeferredFuture();
-                    /** @psalm-suppress InvalidArgument */
-                    $this->deferredCancellation->getCancellation()->subscribe($future->complete(...));
-                    $future->getFuture()->await($cancellation);
-                } catch (CancelledException) {
-                    // Worker did not die normally within cancellation window
-                }
+            }
+
+            try {
+                $this->joinFuture->await($cancellation);
+            } catch (CancelledException) {
+                // Worker did not die normally within cancellation window
             }
         } finally {
-            if (!$this->deferredCancellation->isCancelled()) {
-                $this->socket->close();
-
-                $this->context->close();
-
-                $this->context->getStdout()->close();
-                $this->context->getStderr()->close();
-
-                $this->deferredCancellation->cancel();
-            }
+            $this->close();
         }
     }
 
     public function log($level, $message, array $context = []): void
     {
-        $this->logger->log($level, $message, \array_merge(
-            $context,
-            ['id' => $this->id, 'pid' => $this->context->getPid()],
-        ));
+        $context['id'] = $this->id;
+        if ($this->context instanceof ProcessContext) {
+            $context['pid'] = $this->context->getPid();
+        }
+
+        $this->logger->log($level, $message, $context);
     }
 
     private function handleMessage(mixed $data): void

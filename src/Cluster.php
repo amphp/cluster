@@ -8,17 +8,16 @@ use Amp\CancelledException;
 use Amp\Cluster\Internal\ClusterLogHandler;
 use Amp\Cluster\Internal\ClusterMessage;
 use Amp\Cluster\Internal\ClusterMessageType;
-use Amp\CompositeCancellation;
 use Amp\DeferredCancellation;
+use Amp\DeferredFuture;
 use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
-use Amp\SignalCancellation;
 use Amp\Socket\ResourceServerSocketFactory;
 use Amp\Socket\ServerSocketFactory;
 use Amp\Socket\Socket;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
-use Monolog\Handler\HandlerInterface;
+use Monolog\Handler\HandlerInterface as MonologHandler;
 use Monolog\Level;
 use Psr\Log\LogLevel;
 use function Amp\trapSignal;
@@ -74,7 +73,7 @@ final class Cluster implements Channel
     public static function createLogHandler(
         int|string|Level $logLevel = LogLevel::DEBUG,
         bool $bubble = false,
-    ): HandlerInterface {
+    ): MonologHandler {
         if (!self::$cluster) {
             throw new \Error(__FUNCTION__ . " should only be called when running as a worker. " .
                 "Create your own log handler when not running as part of a cluster. " .
@@ -97,19 +96,23 @@ final class Cluster implements Channel
         ];
     }
 
-    public static function awaitTermination(): int
+    public static function awaitTermination(): void
     {
-        try {
-            return trapSignal(self::getSignalList(), true, self::$cluster?->loopCancellation->getCancellation());
-        } catch (CancelledException) {
-            return 0;
+        if (!self::$cluster) {
+            trapSignal(self::getSignalList());
+            return;
         }
+
+        $deferredFuture = new DeferredFuture();
+        self::$cluster->loopCancellation->getCancellation()->subscribe($deferredFuture->complete(...));
+
+        $deferredFuture->getFuture()->await();
     }
 
     private static function run(Channel $channel, Socket&ResourceStream $transferSocket): void
     {
         self::$cluster = new self($channel, new ClusterServerSocketFactory($transferSocket));
-        self::$cluster->loop(new SignalCancellation(self::getSignalList()));
+        self::$cluster->loop();
     }
 
     public static function shutdown(): void
@@ -118,19 +121,21 @@ final class Cluster implements Channel
     }
 
     private readonly Queue $queue;
+
     private readonly ConcurrentIterator $iterator;
+
     private DeferredCancellation $loopCancellation;
 
     /**
      * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
      */
     private function __construct(
-        private readonly Channel                    $ipcChannel,
+        private readonly Channel $ipcChannel,
         private readonly ClusterServerSocketFactory $serverSocketFactory,
     ) {
         $this->queue = new Queue();
         $this->iterator = $this->queue->iterate();
-        $this->loopCancellation = new DeferredCancellation;
+        $this->loopCancellation = new DeferredCancellation();
     }
 
     public function receive(?Cancellation $cancellation = null): mixed
@@ -163,12 +168,12 @@ final class Cluster implements Channel
 
     public function onClose(\Closure $onClose): void
     {
-        $this->loopCancellation->getCancellation()->subscribe($onClose);
+        $this->loopCancellation->getCancellation()->subscribe(static fn () => $onClose());
     }
 
-    private function loop(Cancellation $cancellation): void
+    private function loop(): void
     {
-        $abortCancellation = new CompositeCancellation($this->loopCancellation->getCancellation(), $cancellation);
+        $abortCancellation = $this->loopCancellation->getCancellation();
 
         try {
             while ($message = $this->ipcChannel->receive($abortCancellation)) {
@@ -189,7 +194,7 @@ final class Cluster implements Channel
                     ClusterMessageType::Log => throw new \RuntimeException('Unexpected message type received'),
                 };
             }
-        } catch (CancelledException | ChannelException) {
+        } catch (CancelledException|ChannelException) {
             // IPC Channel manually closed
         } finally {
             $this->loopCancellation->cancel();

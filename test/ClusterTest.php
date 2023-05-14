@@ -5,7 +5,6 @@ namespace Amp\Cluster\Test;
 use Amp\ByteStream\StreamChannel;
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
-use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
 use Amp\Socket;
 use Monolog\Handler\HandlerInterface;
@@ -63,7 +62,7 @@ class ClusterTest extends AsyncTestCase
 
     public function testSelectPort(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', new LocalIpcHub, $this->logger);
+        $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', $this->logger);
 
         $ports = [];
         $watcher->onMessage(function (int $port) use (&$ports): void {

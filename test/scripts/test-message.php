@@ -15,5 +15,5 @@ EventLoop::queue(function () use (&$running) {
 });
 
 while ($running) {
-    \Amp\delay(100);
+    \Amp\delay(1);
 }

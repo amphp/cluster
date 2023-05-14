@@ -2,16 +2,18 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ReadableResourceStream;
 use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\CompositeException;
+use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\Parallel\Context\ContextException;
-use Amp\Parallel\Context\ProcessContext;
+use Amp\Parallel\Context\ContextFactory;
+use Amp\Parallel\Context\DefaultContextFactory;
 use Amp\Parallel\Ipc\IpcHub;
+use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
 use Monolog\Logger;
@@ -28,6 +30,8 @@ final class Watcher
 
     private readonly ClusterServerSocketProvider $provider;
 
+    private readonly ContextFactory $contextFactory;
+
     private bool $running = false;
 
     /** @var non-empty-list<string> */
@@ -35,7 +39,7 @@ final class Watcher
 
     private int $nextId = 1;
 
-    /** @var array<int, Internal\ProcessWorker<TReceive, TSend>> */
+    /** @var array<int, Internal\ContextWorker<TReceive, TSend>> */
     private array $workers = [];
 
     /** @var Future<void>[] */
@@ -51,8 +55,8 @@ final class Watcher
      */
     public function __construct(
         string|array $script,
-        private readonly IpcHub $hub,
         private readonly Logger $logger,
+        private readonly IpcHub $hub = new LocalIpcHub(),
     ) {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
@@ -62,6 +66,8 @@ final class Watcher
             [__DIR__ . '/Internal/cluster-runner.php'],
             \is_array($script) ? \array_values(\array_map(\strval(...), $script)) : [$script]
         );
+
+        $this->contextFactory = new DefaultContextFactory(ipcHub: $this->hub);
 
         $this->provider = new ClusterServerSocketProvider();
     }
@@ -98,126 +104,99 @@ final class Watcher
         $this->running = true;
 
         try {
-            $futures = [];
             for ($i = 0; $i < $count; ++$i) {
-                $futures[] = $this->startWorker();
+                $this->startWorker();
             }
-            Future\await($futures);
         } catch (\Throwable $exception) {
             $this->stop();
             throw $exception;
         }
     }
 
-    private function startWorker(): Future
+    private function startWorker(): void
     {
-        return async(function (): void {
-            $context = ProcessContext::start($this->hub, $this->script);
+        $context = $this->contextFactory->start($this->script);
 
-            $id = $this->nextId++;
+        $id = $this->nextId++;
 
-            $key = $this->hub->generateKey();
+        $key = $this->hub->generateKey();
 
-            $context->send([
-                'uri' => $this->hub->getUri(),
-                'key' => $key,
-            ]);
+        $context->send([
+            'uri' => $this->hub->getUri(),
+            'key' => $key,
+        ]);
+
+        try {
+            $socket = $this->hub->accept($key);
+        } catch (\Throwable $exception) {
+            if (!$context->isClosed()) {
+                $context->close();
+            }
+
+            throw new ClusterException("Starting the cluster worker failed", previous: $exception);
+        }
+
+        if (!$socket instanceof ResourceStream) {
+            throw new \TypeError(\sprintf(
+                "The %s instance returned from %s must also implement %s",
+                Socket::class,
+                \get_class($this->hub),
+                ResourceStream::class,
+            ));
+        }
+
+        $deferredCancellation = new DeferredCancellation();
+        $worker = new Internal\ContextWorker($id, $context, $socket, $deferredCancellation, $this->logger);
+
+        $worker->info(\sprintf('Started worker with ID %d', $id));
+
+        // Cluster stopped while worker was starting, so immediately throw everything away.
+        if (!$this->running) {
+            $worker->shutdown();
+            return;
+        }
+
+        $this->workerFutures[$id] = async(function () use ($worker, $context, $socket, $deferredCancellation, $id): void {
+            $futures = [$this->provider->provideFor($socket)];
 
             try {
-                $socket = $this->hub->accept($key);
-            } catch (\Throwable $exception) {
-                if (!$context->isClosed()) {
+                try {
+                    $worker->run();
+
+                    $worker->info("Worker {$id} terminated cleanly" .
+                        ($this->running ? ", restarting..." : ""));
+                } catch (CancelledException) {
+                    $worker->info("Worker {$id} forcefully terminated as part of watcher shutdown");
+                } catch (ChannelException $exception) {
+                    $worker->error("Worker {$id} died unexpectedly: {$exception->getMessage()}" .
+                        ($this->running ? ", restarting..." : ""));
+                } catch (\Throwable $exception) {
+                    $worker->error(
+                        "Worker {$id} failed: " . (string) $exception,
+                        ['exception' => $exception],
+                    );
+                    throw $exception;
+                } finally {
+                    $deferredCancellation->cancel();
+                    unset($this->workers[$id], $this->workerFutures[$id]);
                     $context->close();
                 }
 
-                throw new ClusterException("Starting the cluster worker failed", previous: $exception);
-            }
+                // Wait for the STDIO streams to be consumed and closed.
+                Future\await($futures);
 
-            if (!$socket instanceof ResourceStream) {
-                throw new \TypeError(\sprintf(
-                    "The %s instance returned from %s must also implement %s",
-                    Socket::class,
-                    \get_class($this->hub),
-                    ResourceStream::class,
-                ));
-            }
-
-            $worker = new Internal\ProcessWorker(
-                $id,
-                $context,
-                $socket,
-                $this->logger,
-            );
-
-            $worker->info(\sprintf('Started worker with ID %d', $id));
-
-            // Cluster stopped while worker was starting, so immediately throw everything away.
-            if (!$this->running) {
-                return;
-            }
-
-            $this->workerFutures[$id] = async(function () use ($worker, $context, $socket, $id): void {
-                $pid = $context->getPid();
-
-                $provider = async(fn () => Future\await([
-                    self::pipeOutputToLogger('STDOUT', $pid, $context->getStdout(), $this->logger),
-                    self::pipeOutputToLogger('STDERR', $pid, $context->getStderr(), $this->logger),
-                    $socket instanceof ResourceStream && \is_resource($socket->getResource())
-                        ? $this->provider->provideFor($socket)
-                        : Future::complete(),
-                ]));
-
-                try {
-                    try {
-                        $worker->run();
-
-                        $worker->info("Worker {$id} terminated cleanly" .
-                            ($this->running ? ", restarting..." : ""));
-                    } catch (CancelledException) {
-                        $worker->info("Worker {$id} forcefully terminated as part of watcher shutdown");
-                    } catch (ChannelException $exception) {
-                        $worker->error("Worker {$id} (PID {$pid}) died unexpectedly: {$exception->getMessage()}" .
-                            ($this->running ? ", restarting..." : ""));
-                    } catch (\Throwable $exception) {
-                        $worker->error(
-                            "Worker {$id} (PID {$pid}) failed: " . (string) $exception,
-                            ['exception' => $exception],
-                        );
-                        throw $exception;
-                    } finally {
-                        unset($this->workers[$id], $this->workerFutures[$id]);
-                    }
-
-                    // Wait for the STDIO streams to be consumed and closed.
-                    $provider->await();
-
-                    if ($this->running) {
-                        $this->startWorker()->await();
-                    }
-                } catch (\Throwable $exception) {
-                    $this->stop();
-                    throw $exception;
+                if ($this->running) {
+                    $this->startWorker();
                 }
-            });
-
-            $worker->onMessage(fn (mixed $data) => $this->handleMessage($data, $this->workers[$id]));
-
-            $this->workers[$id] = $worker;
-        });
-    }
-
-    private static function pipeOutputToLogger(
-        string $pipe,
-        int $pid,
-        ReadableResourceStream $stream,
-        Logger $logger,
-    ): Future {
-        $stream->unreference();
-        return async(static function () use ($pipe, $pid, $stream, $logger): void {
-            while (null !== $chunk = $stream->read()) {
-                $logger->info(\sprintf('%s from PID %d: %s', $pipe, $pid, $chunk), ['pipe' => $pipe, 'pid' => $pid]);
+            } catch (\Throwable $exception) {
+                $this->stop();
+                throw $exception;
             }
         });
+
+        $worker->onMessage(fn (mixed $data) => $this->handleMessage($data, $this->workers[$id]));
+
+        $this->workers[$id] = $worker;
     }
 
     /**
