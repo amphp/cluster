@@ -16,7 +16,9 @@ use Amp\Parallel\Ipc\IpcHub;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
+use Monolog\Handler\PsrHandler;
 use Monolog\Logger;
+use Psr\Log\LoggerInterface as PsrLogger;
 use Revolt\EventLoop;
 use function Amp\async;
 
@@ -31,6 +33,8 @@ final class Watcher
     private readonly ClusterServerSocketProvider $provider;
 
     private readonly ContextFactory $contextFactory;
+
+    private readonly Logger $logger;
 
     private bool $running = false;
 
@@ -55,7 +59,7 @@ final class Watcher
      */
     public function __construct(
         string|array $script,
-        private readonly Logger $logger,
+        PsrLogger $logger,
         private readonly IpcHub $hub = new LocalIpcHub(),
     ) {
         if (Cluster::isWorker()) {
@@ -68,13 +72,26 @@ final class Watcher
         );
 
         $this->contextFactory = new DefaultContextFactory(ipcHub: $this->hub);
-
         $this->provider = new ClusterServerSocketProvider();
+        $this->logger = $this->createLogger($logger);
     }
 
     public function __destruct()
     {
         EventLoop::queue($this->stop(...));
+    }
+
+    private function createLogger(PsrLogger $psrLogger): Logger
+    {
+        if ($psrLogger instanceof Logger) {
+            return $psrLogger;
+        }
+
+        $monologLogger = new Logger('cluster-watcher');
+        $psrHandler = new PsrHandler($psrLogger);
+        $monologLogger->pushHandler($psrHandler);
+
+        return $monologLogger;
     }
 
     /**
