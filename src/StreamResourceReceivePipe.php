@@ -19,7 +19,7 @@ use Revolt\EventLoop\Suspension;
  */
 final class StreamResourceReceivePipe implements Closable
 {
-    /** @var Suspension<null|\Closure():never>|null */
+    /** @var Suspension<(\Closure():never)|null>|null */
     private ?Suspension $waiting = null;
 
     /** @var \SplQueue<TransferredResource<string>> */
@@ -75,7 +75,7 @@ final class StreamResourceReceivePipe implements Closable
 
         $this->socket->onClose(static function () use (&$suspension, $onReadable): void {
             EventLoop::cancel($onReadable);
-            $suspension?->throw(new SocketException('The transfer socket closed unexpectedly'));
+            $suspension?->resume(static fn () => throw new SocketException('The transfer socket closed unexpectedly'));
         });
     }
 
