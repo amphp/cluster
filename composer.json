@@ -34,12 +34,18 @@
         "amphp/byte-stream": "^2",
         "amphp/log": "^2",
         "amphp/parallel": "^2.2",
+        "amphp/pipeline": "^1",
+        "amphp/process": "^2",
+        "amphp/serialization": "^1",
         "amphp/socket": "^2",
+        "amphp/sync": "^2",
         "league/climate": "^3",
         "monolog/monolog": "^3|^2|^1.23",
-        "psr/log": "^3|^2|^1"
+        "psr/log": "^3|^2|^1",
+        "revolt/event-loop": "^1"
     },
     "require-dev": {
+        "ext-pcntl": "*",
         "ext-sockets": "*",
         "amphp/file": "^3",
         "amphp/http-server": "^3",

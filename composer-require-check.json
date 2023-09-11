@@ -1,12 +1,17 @@
 {
-    "symbol-whitelist": [],
+    "symbol-whitelist": [
+        "canReusePort"
+    ],
     "php-core-extensions": [
         "Core",
         "date",
+        "pcntl",
         "pcre",
+        "posix",
         "Phar",
         "Reflection",
         "SPL",
+        "sockets",
         "standard",
         "hash"
     ]
