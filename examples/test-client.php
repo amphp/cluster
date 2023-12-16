@@ -1,5 +1,6 @@
 <?php declare(strict_types=1);
 
+use Amp\ByteStream\ResourceStream;
 use Amp\CancelledException;
 use Amp\Cluster\ClusterServerSocketFactory;
 use Amp\Parallel\Ipc;
@@ -12,14 +13,19 @@ use Amp\Sync\Channel;
  * @param Channel<string, SocketAddress> $channel
  */
 return function (Channel $channel): void {
-    echo "Child started\n";
+    $pid = getmypid();
+
+    printf("Child started: %d\n", $pid);
 
     $uri = $channel->receive();
     $key = $channel->receive();
 
-    echo sprintf("Received %s and %s\n", $uri, base64_encode($key));
+    printf("Received %s from %s\n", base64_encode($key), $uri);
 
     $socket = Ipc\connect($uri, $key);
+    if (!$socket instanceof ResourceStream) {
+        throw new \Error("Expected instance of " . ResourceStream::class);
+    }
 
     $clusterServerFactory = new ClusterServerSocketFactory($socket);
 
@@ -27,13 +33,17 @@ return function (Channel $channel): void {
 
     echo $server->getAddress()->toString(), PHP_EOL;
 
-    $myPid = getmypid();
-
     $cancellation = new SignalCancellation([\SIGTERM, SIGINT, SIGHUP]);
 
     try {
         while ($client = $server->accept($cancellation)) {
-            echo "Accepted {$client->getRemoteAddress()->toString()} on {$client->getLocalAddress()->toString()} in PID {$myPid}\n";
+            printf(
+                "Accepted %s on %s in PID %d\n",
+                $client->getRemoteAddress()->toString(),
+                $client->getLocalAddress()->toString(),
+                $pid,
+            );
+
             $client->close();
         }
     } catch (CancelledException) {

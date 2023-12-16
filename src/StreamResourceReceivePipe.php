@@ -117,7 +117,7 @@ final class StreamResourceReceivePipe implements Closable
         }
 
         if ($this->receiveQueue->isEmpty()) {
-            $this->waiting = EventLoop::getSuspension();
+            $this->waiting = $suspension = EventLoop::getSuspension();
 
             $waiting = &$this->waiting;
             $id = $cancellation?->subscribe(static function (CancelledException $exception) use (&$waiting): void {
@@ -126,8 +126,9 @@ final class StreamResourceReceivePipe implements Closable
             });
 
             try {
-                if ($closure = $this->waiting->suspend()) {
+                if ($closure = $suspension->suspend()) {
                     $closure();
+                    throw new \Error('Closure was expected to throw an exception');
                 }
             } finally {
                 /** @psalm-suppress PossiblyNullArgument If $cancellation is not null, $id will not be null. */

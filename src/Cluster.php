@@ -127,11 +127,13 @@ final class Cluster implements Channel
         self::$cluster?->close();
     }
 
+    /** @var Queue<TReceive> */
     private readonly Queue $queue;
 
+    /** @var ConcurrentIterator<TReceive> */
     private readonly ConcurrentIterator $iterator;
 
-    private DeferredCancellation $loopCancellation;
+    private readonly DeferredCancellation $loopCancellation;
 
     /**
      * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
