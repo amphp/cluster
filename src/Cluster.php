@@ -96,17 +96,24 @@ final class Cluster implements Channel
         ];
     }
 
-    public static function awaitTermination(): void
+    public static function awaitTermination(?Cancellation $cancellation = null): void
     {
         if (!self::$cluster) {
-            trapSignal(self::getSignalList());
+            trapSignal(self::getSignalList(), cancellation: $cancellation);
             return;
         }
 
         $deferredFuture = new DeferredFuture();
-        self::$cluster->loopCancellation->getCancellation()->subscribe($deferredFuture->complete(...));
+        $loopCancellation = self::$cluster->loopCancellation->getCancellation();
+        $loopId = $loopCancellation->subscribe($deferredFuture->complete(...));
+        $cancellationId = $cancellation?->subscribe(static fn () => $loopCancellation->unsubscribe($loopId));
 
-        $deferredFuture->getFuture()->await();
+        try {
+            $deferredFuture->getFuture()->await($cancellation);
+        } finally {
+            /** @psalm-suppress PossiblyNullArgument $cancellationId is not null if $cancellation is not null. */
+            $cancellation?->unsubscribe($cancellationId);
+        }
     }
 
     private static function run(Channel $channel, Socket&ResourceStream $transferSocket): void
