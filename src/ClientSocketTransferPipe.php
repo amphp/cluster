@@ -13,7 +13,7 @@ use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 
 /**
- * @template TReceive
+ * @template-covariant TReceive
  * @template TSend
  */
 final class ClientSocketTransferPipe implements Closable

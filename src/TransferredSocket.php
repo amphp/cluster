@@ -6,7 +6,7 @@ use Amp\ByteStream\ResourceStream;
 use Amp\Socket\Socket;
 
 /**
- * @template T
+ * @template-covariant T
  */
 final class TransferredSocket
 {

@@ -15,7 +15,7 @@ use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
 
 /**
- * @template T
+ * @template-covariant T
  */
 final class StreamResourceReceivePipe implements Closable
 {

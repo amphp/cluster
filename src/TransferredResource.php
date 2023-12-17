@@ -3,7 +3,7 @@
 namespace Amp\Cluster;
 
 /**
- * @template T
+ * @template-covariant T
  */
 final class TransferredResource
 {
