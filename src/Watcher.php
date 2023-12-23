@@ -188,7 +188,8 @@ final class Watcher
             return $worker;
         }
 
-        $this->workerFutures[$id] = async(function () use ($worker,
+        $this->workerFutures[$id] = async(function () use (
+            $worker,
             $context,
             $socket,
             $deferredCancellation,
