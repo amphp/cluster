@@ -12,7 +12,6 @@ use Amp\Socket;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
 use function Amp\async;
-use function Amp\delay;
 
 class ClusterTest extends AsyncTestCase
 {
@@ -65,18 +64,10 @@ class ClusterTest extends AsyncTestCase
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', $this->logger);
 
-//        $ports = [];
-//        $future = async(function () use (&$ports, $watcher): void {
-//            foreach ($watcher->getMessageIterator() as $message) {
-//                $ports[] = $message->getData();
-//            }
-//        });
-
         $count = 3;
 
         try {
             $watcher->start($count);
-//            delay(1); // Give workers time to start and send message.
 
             $ports = Pipeline::fromIterable($watcher->getMessageIterator())
                 ->take(3)
@@ -88,7 +79,5 @@ class ClusterTest extends AsyncTestCase
         } finally {
             $watcher->stop();
         }
-
-//        $future->await();
     }
 }

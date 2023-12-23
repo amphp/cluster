@@ -5,7 +5,6 @@ namespace Amp\Cluster\Test;
 use Amp\Cluster\Watcher;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
-use Amp\Pipeline\Pipeline;
 use Amp\TimeoutCancellation;
 use Monolog\Logger;
 use function Amp\async;
