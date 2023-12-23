@@ -54,17 +54,18 @@ final class Watcher
     /** @var array<int, Internal\ContextWorker<TReceive, TSend>> */
     private array $workers = [];
 
-    /** @var Future<void>[] */
+    /** @var array<int, Future<void>> */
     private array $workerFutures = [];
 
     /** @var Queue<WorkerMessage<TReceive, TSend>> */
-    private Queue $queue;
+    private readonly Queue $queue;
 
     /** @var ConcurrentIterator<WorkerMessage<TReceive, TSend>> */
-    private ConcurrentIterator $iterator;
+    private readonly ConcurrentIterator $iterator;
 
     /**
      * @param string|array<string> $script Script path and optional arguments.
+     * @param IpcHub $hub The sockets returned from {@see IpcHub::accept()} must also implement {@see ResourceStream}.
      */
     public function __construct(
         string|array $script,
@@ -107,6 +108,9 @@ final class Watcher
     }
 
     /**
+     * Returns a concurrent iterator of messages sent from workers using {@see Cluster::getChannel()::send()}.
+     * The returned iterator is completed when the cluster watcher is stopped.
+     *
      * @return ConcurrentIterator<WorkerMessage<TReceive, TSend>>
      */
     public function getMessageIterator(): ConcurrentIterator
@@ -120,7 +124,7 @@ final class Watcher
     public function start(int $count): void
     {
         if ($this->running || $this->queue->isComplete()) {
-            throw new \Error("The cluster is already running or has already run");
+            throw new \Error("The cluster watcher is already running or has already run");
         }
 
         if ($count <= 0) {
@@ -168,7 +172,7 @@ final class Watcher
 
         if (!$socket instanceof ResourceStream) {
             throw new \TypeError(\sprintf(
-                "The %s instance returned from %s must also implement %s",
+                "The %s instance returned from %s::accept() must also implement %s",
                 Socket::class,
                 \get_class($this->hub),
                 ResourceStream::class,
@@ -185,7 +189,7 @@ final class Watcher
             $this->logger,
         );
 
-        $worker->info(\sprintf('Started worker with ID %d', $id));
+        $worker->info(\sprintf('Started cluster worker with ID %d', $id));
 
         // Cluster stopped while worker was starting, so immediately throw everything away.
         if (!$this->running) {
@@ -241,17 +245,7 @@ final class Watcher
     }
 
     /**
-     * Returns an array of all workers, mapped by their ID.
-     *
-     * @return array<int, Worker>
-     */
-    public function getWorkers(): array
-    {
-        return $this->workers;
-    }
-
-    /**
-     * Restarts all workers simultaneously without delay.
+     * Restarts all workers simultaneously.
      */
     public function restart(): void
     {
@@ -269,7 +263,7 @@ final class Watcher
     }
 
     /**
-     * Stops the cluster.
+     * Stops all cluster workers. Workers are killed if the cancellation token is cancelled.
      *
      * @param Cancellation|null $cancellation Token to request cancellation of waiting for shutdown.
      * When cancelled, the workers are forcefully killed. If null, the workers are killed immediately.

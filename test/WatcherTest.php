@@ -27,7 +27,7 @@ class WatcherTest extends AsyncTestCase
         $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
 
         $this->expectException(\Error::class);
-        $this->expectExceptionMessage('The cluster is already running or has already run');
+        $this->expectExceptionMessage('The cluster watcher is already running or has already run');
 
         try {
             $watcher->start(1);

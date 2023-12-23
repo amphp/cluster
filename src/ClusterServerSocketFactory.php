@@ -27,7 +27,7 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
     /** @var Channel<never, SocketAddress|null> */
     private readonly Channel $channel;
 
-    /** @var StreamResourceReceivePipe<never> */
+    /** @var StreamResourceReceivePipe<null> */
     private readonly StreamResourceReceivePipe $pipe;
 
     public function __construct(Socket&ResourceStream $socket)
