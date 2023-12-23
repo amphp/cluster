@@ -34,7 +34,7 @@
         "amphp/byte-stream": "^2",
         "amphp/log": "^2",
         "amphp/parallel": "^2.2",
-        "amphp/pipeline": "^1",
+        "amphp/pipeline": "^1.1",
         "amphp/process": "^2",
         "amphp/serialization": "^1",
         "amphp/socket": "^2",

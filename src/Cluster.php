@@ -4,7 +4,6 @@ namespace Amp\Cluster;
 
 use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
-use Amp\CancelledException;
 use Amp\Cluster\Internal\ClusterLogHandler;
 use Amp\Cluster\Internal\ClusterMessage;
 use Amp\Cluster\Internal\ClusterMessageType;
@@ -37,11 +36,11 @@ final class Cluster implements Channel
     }
 
     /**
-     * @return int Returns the amphp context ID of the execution context.
+     * @return int<0, max> Returns the context ID of the execution context or 0 if running as an independent script.
      */
     public static function getContextId(): int
     {
-        return \defined("AMP_CONTEXT_ID") ? \AMP_CONTEXT_ID : \getmypid();
+        return self::$cluster?->contextId ?? 0;
     }
 
     public static function getServerSocketFactory(): ServerSocketFactory
@@ -116,9 +115,12 @@ final class Cluster implements Channel
         }
     }
 
-    private static function run(Channel $channel, Socket&ResourceStream $transferSocket): void
+    /**
+     * @param positive-int $contextId
+     */
+    private static function run(int $contextId, Channel $channel, Socket&ResourceStream $transferSocket): void
     {
-        self::$cluster = new self($channel, new ClusterServerSocketFactory($transferSocket));
+        self::$cluster = new self($contextId, $channel, new ClusterServerSocketFactory($transferSocket));
         self::$cluster->loop();
     }
 
@@ -136,9 +138,11 @@ final class Cluster implements Channel
     private readonly DeferredCancellation $loopCancellation;
 
     /**
+     * @param int<0, max> $contextId
      * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
      */
     private function __construct(
+        private readonly int $contextId,
         private readonly Channel $ipcChannel,
         private readonly ClusterServerSocketFactory $serverSocketFactory,
     ) {
@@ -197,13 +201,13 @@ final class Cluster implements Channel
                         new ClusterMessage(ClusterMessageType::Pong, $message->data),
                     ),
 
-                    ClusterMessageType::Data => $this->queue->push($message->data),
+                    ClusterMessageType::Data => $this->queue->pushAsync($message->data)->ignore(),
 
                     ClusterMessageType::Pong,
                     ClusterMessageType::Log => throw new \RuntimeException('Unexpected message type received'),
                 };
             }
-        } catch (CancelledException|ChannelException) {
+        } catch (\Throwable) {
             // IPC Channel manually closed
         } finally {
             $this->loopCancellation->cancel();

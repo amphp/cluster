@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster\Internal;
 
+/** @internal */
 enum ClusterMessageType
 {
     case Ping;

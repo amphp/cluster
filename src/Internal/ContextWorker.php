@@ -6,10 +6,12 @@ use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Cluster\Watcher;
 use Amp\Cluster\Worker;
+use Amp\Cluster\WorkerMessage;
 use Amp\DeferredCancellation;
 use Amp\Future;
 use Amp\Parallel\Context\Context;
 use Amp\Parallel\Context\ProcessContext;
+use Amp\Pipeline\Queue;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
 use Amp\TimeoutCancellation;
@@ -21,10 +23,10 @@ use function Amp\async;
 use function Amp\weakClosure;
 
 /**
- * @template TReceive
+ * @template-covariant TReceive
  * @template TSend
  *
- * @implements Worker<TReceive, TSend>
+ * @implements Worker<TSend>
  *
  * @internal
  */
@@ -34,18 +36,18 @@ final class ContextWorker extends AbstractLogger implements Worker
 
     private int $lastActivity;
 
-    /** @var list<\Closure(TReceive):void> */
-    private array $onMessage = [];
-
     private readonly Future $joinFuture;
 
     /**
+     * @param positive-int $id
      * @param Context<mixed, ClusterMessage|null, ClusterMessage|null> $context
+     * @param Queue<WorkerMessage<TReceive, TSend>> $queue
      */
     public function __construct(
         private readonly int $id,
         private readonly Context $context,
         private readonly Socket $socket,
+        private readonly Queue $queue,
         private readonly DeferredCancellation $deferredCancellation,
         private readonly Logger $logger,
     ) {
@@ -56,11 +58,6 @@ final class ContextWorker extends AbstractLogger implements Worker
     public function getId(): int
     {
         return $this->id;
-    }
-
-    public function onMessage(\Closure $onMessage): void
-    {
-        $this->onMessage[] = $onMessage;
     }
 
     public function send(mixed $data): void
@@ -96,7 +93,9 @@ final class ContextWorker extends AbstractLogger implements Worker
                 match ($message->type) {
                     ClusterMessageType::Pong => null,
 
-                    ClusterMessageType::Data => $this->handleMessage($message->data),
+                    ClusterMessageType::Data => $this->queue
+                        ->pushAsync(new WorkerMessage($this, $message->data))
+                        ->ignore(),
 
                     ClusterMessageType::Log => \array_map(
                         static fn (MonologHandler $handler) => $handler->handle($message->data),
@@ -108,6 +107,9 @@ final class ContextWorker extends AbstractLogger implements Worker
             }
 
             $this->joinFuture->await(new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
+        } catch (\Throwable $exception) {
+            $this->joinFuture->ignore();
+            throw $exception;
         } finally {
             EventLoop::cancel($watcher);
             $this->close();
@@ -151,12 +153,5 @@ final class ContextWorker extends AbstractLogger implements Worker
         }
 
         $this->logger->log($level, $message, $context);
-    }
-
-    private function handleMessage(mixed $data): void
-    {
-        foreach ($this->onMessage as $onMessage) {
-            async($onMessage, $data);
-        }
     }
 }

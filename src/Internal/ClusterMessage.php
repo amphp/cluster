@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster\Internal;
 
+/** @internal */
 final class ClusterMessage
 {
     public function __construct(

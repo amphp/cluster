@@ -36,7 +36,7 @@ return static function (Channel $channel) use ($argc, $argv): void {
 
     try {
         // Read random IPC hub URI and associated key from process channel.
-        ['uri' => $uri, 'key' => $key] = $channel->receive();
+        ['id' => $id, 'uri' => $uri, 'key' => $key] = $channel->receive();
 
         $transferSocket = Ipc\connect($uri, $key, new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
     } catch (\Throwable $exception) {
@@ -51,7 +51,7 @@ return static function (Channel $channel) use ($argc, $argv): void {
 
         /** @psalm-suppress InvalidArgument */
         Future\await([
-            async((static fn () => Cluster::run($channel, $transferSocket))->bindTo(null, Cluster::class)
+            async((static fn () => Cluster::run($id, $channel, $transferSocket))->bindTo(null, Cluster::class)
                 ?: throw new \RuntimeException('Unable to bind closure')),
 
             /* Protect current scope by requiring script within another function.

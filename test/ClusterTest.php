@@ -5,7 +5,9 @@ namespace Amp\Cluster\Test;
 use Amp\ByteStream\StreamChannel;
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
+use Amp\Cluster\WorkerMessage;
 use Amp\PHPUnit\AsyncTestCase;
+use Amp\Pipeline\Pipeline;
 use Amp\Socket;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Logger;
@@ -14,8 +16,7 @@ use function Amp\delay;
 
 class ClusterTest extends AsyncTestCase
 {
-    /** @var Logger */
-    private $logger;
+    private Logger $logger;
 
     public function setUp(): void
     {
@@ -43,7 +44,7 @@ class ClusterTest extends AsyncTestCase
 
         $channel = new StreamChannel($receive, $receive);
 
-        $future = async((static fn () => Cluster::run($channel, $send))->bindTo(null, Cluster::class));
+        $future = async((static fn () => Cluster::run(1, $channel, $send))->bindTo(null, Cluster::class));
 
         $handler = async(Cluster::createLogHandler(...))->await();
 
@@ -64,20 +65,30 @@ class ClusterTest extends AsyncTestCase
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', $this->logger);
 
-        $ports = [];
-        $watcher->onMessage(function (int $port) use (&$ports): void {
-            $ports[] = $port;
-        });
+//        $ports = [];
+//        $future = async(function () use (&$ports, $watcher): void {
+//            foreach ($watcher->getMessageIterator() as $message) {
+//                $ports[] = $message->getData();
+//            }
+//        });
 
         $count = 3;
 
         try {
             $watcher->start($count);
-            delay(0.1); // Give workers time to start and send message.
+//            delay(1); // Give workers time to start and send message.
+
+            $ports = Pipeline::fromIterable($watcher->getMessageIterator())
+                ->take(3)
+                ->map(fn (WorkerMessage $m) => $m->getData())
+                ->toArray();
+
             $this->assertCount($count, $ports);
             $this->assertSame(\array_fill(0, $count, $ports[0]), $ports);
         } finally {
             $watcher->stop();
         }
+
+//        $future->await();
     }
 }

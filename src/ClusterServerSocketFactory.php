@@ -76,7 +76,12 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
         \socket_listen($socket, $context["socket"]["backlog"] ?? 0);
 
         $stream = \socket_export_stream($socket);
-        \stream_context_set_option($stream, $context);
+        if (PHP_VERSION_ID >= 80300) {
+            /** @psalm-suppress UndefinedFunction */
+            \stream_context_set_options($stream, $context);
+        } else {
+            \stream_context_set_option($stream, $context);
+        }
 
         return new ResourceServerSocket($stream, $bindContext);
     }

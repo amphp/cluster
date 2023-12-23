@@ -5,15 +5,17 @@ namespace Amp\Cluster;
 use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\Cluster\Internal\ContextWorker;
 use Amp\CompositeException;
 use Amp\DeferredCancellation;
-use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\ContextFactory;
 use Amp\Parallel\Context\DefaultContextFactory;
 use Amp\Parallel\Ipc\IpcHub;
 use Amp\Parallel\Ipc\LocalIpcHub;
+use Amp\Pipeline\ConcurrentIterator;
+use Amp\Pipeline\Queue;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
 use Monolog\Handler\PsrHandler;
@@ -23,7 +25,7 @@ use Revolt\EventLoop;
 use function Amp\async;
 
 /**
- * @template TReceive
+ * @template-covariant TReceive
  * @template TSend
  */
 final class Watcher
@@ -41,6 +43,7 @@ final class Watcher
     /** @var non-empty-list<string> */
     private readonly array $script;
 
+    /** @var positive-int */
     private int $nextId = 1;
 
     /** @var array<int, Internal\ContextWorker<TReceive, TSend>> */
@@ -49,13 +52,14 @@ final class Watcher
     /** @var Future<void>[] */
     private array $workerFutures = [];
 
-    /** @var list<\Closure(TReceive, Worker):void> */
-    private array $onMessage = [];
+    /** @var Queue<WorkerMessage<TReceive, TSend>> */
+    private Queue $queue;
 
-    private ?DeferredFuture $deferred = null;
+    /** @var ConcurrentIterator<WorkerMessage<TReceive, TSend>> */
+    private ConcurrentIterator $iterator;
 
     /**
-     * @param string|string[] $script Script path and optional arguments.
+     * @param string|array<string> $script Script path and optional arguments.
      */
     public function __construct(
         string|array $script,
@@ -68,12 +72,15 @@ final class Watcher
 
         $this->script = \array_merge(
             [__DIR__ . '/Internal/cluster-runner.php'],
-            \is_array($script) ? \array_values(\array_map(\strval(...), $script)) : [$script]
+            \is_array($script) ? \array_values(\array_map(\strval(...), $script)) : [$script],
         );
 
         $this->contextFactory = new DefaultContextFactory(ipcHub: $this->hub);
         $this->provider = new ClusterServerSocketProvider();
         $this->logger = $this->createLogger($logger);
+
+        $this->queue = new Queue();
+        $this->iterator = $this->queue->iterate();
     }
 
     public function __destruct()
@@ -95,13 +102,11 @@ final class Watcher
     }
 
     /**
-     * Attaches a callback to be invoked when a message is received from any worker process.
-     *
-     * @param \Closure(TReceive, Worker):void $onMessage
+     * @return ConcurrentIterator<WorkerMessage<TReceive, TSend>>
      */
-    public function onMessage(\Closure $onMessage): void
+    public function getMessageIterator(): ConcurrentIterator
     {
-        $this->onMessage[] = $onMessage;
+        return $this->iterator;
     }
 
     /**
@@ -109,7 +114,7 @@ final class Watcher
      */
     public function start(int $count): void
     {
-        if ($this->running || $this->deferred) {
+        if ($this->running || $this->queue->isComplete()) {
             throw new \Error("The cluster is already running or has already run");
         }
 
@@ -117,12 +122,13 @@ final class Watcher
             throw new \Error("The number of workers must be greater than zero");
         }
 
-        $this->deferred = new DeferredFuture();
+        $this->workers = [];
         $this->running = true;
 
         try {
             for ($i = 0; $i < $count; ++$i) {
-                $this->startWorker();
+                $id = $this->nextId++;
+                $this->workers[$id] = $this->startWorker($id);
             }
         } catch (\Throwable $exception) {
             $this->stop();
@@ -130,15 +136,17 @@ final class Watcher
         }
     }
 
-    private function startWorker(): void
+    /**
+     * @param positive-int $id
+     */
+    private function startWorker(int $id): ContextWorker
     {
         $context = $this->contextFactory->start($this->script);
-
-        $id = $this->nextId++;
 
         $key = $this->hub->generateKey();
 
         $context->send([
+            'id' => $id,
             'uri' => $this->hub->getUri(),
             'key' => $key,
         ]);
@@ -163,17 +171,29 @@ final class Watcher
         }
 
         $deferredCancellation = new DeferredCancellation();
-        $worker = new Internal\ContextWorker($id, $context, $socket, $deferredCancellation, $this->logger);
+        $worker = new Internal\ContextWorker(
+            $id,
+            $context,
+            $socket,
+            $this->queue,
+            $deferredCancellation,
+            $this->logger,
+        );
 
         $worker->info(\sprintf('Started worker with ID %d', $id));
 
         // Cluster stopped while worker was starting, so immediately throw everything away.
         if (!$this->running) {
             $worker->shutdown();
-            return;
+            return $worker;
         }
 
-        $this->workerFutures[$id] = async(function () use ($worker, $context, $socket, $deferredCancellation, $id): void {
+        $this->workerFutures[$id] = async(function () use ($worker,
+            $context,
+            $socket,
+            $deferredCancellation,
+            $id,
+        ): void {
             $futures = [$this->provider->provideFor($socket)];
 
             try {
@@ -203,30 +223,15 @@ final class Watcher
                 Future\await($futures);
 
                 if ($this->running) {
-                    $this->startWorker();
+                    $this->workers[$id] = $this->startWorker($this->nextId++);
                 }
             } catch (\Throwable $exception) {
                 $this->stop();
                 throw $exception;
             }
-        });
+        })->ignore();
 
-        $worker->onMessage(fn (mixed $data) => $this->handleMessage($data, $this->workers[$id]));
-
-        $this->workers[$id] = $worker;
-    }
-
-    /**
-     * Returns a promise that is succeeds when the cluster has stopped or fails if a worker cannot be restarted or
-     * if stopping the cluster fails.
-     */
-    public function join(): void
-    {
-        if (!$this->deferred) {
-            throw new \Error("The cluster has not been started");
-        }
-
-        $this->deferred->getFuture()->await();
+        return $worker;
     }
 
     /**
@@ -265,24 +270,26 @@ final class Watcher
      */
     public function stop(?Cancellation $cancellation = null): void
     {
-        if (!$this->deferred) {
+        if ($this->queue->isComplete()) {
             return;
         }
 
         $this->running = false;
 
         $futures = [];
-        foreach ($this->workers as $id => $worker) {
-            $futures[] = async(function () use ($id, $worker, $cancellation): void {
-                $future = $this->workerFutures[$id];
+        foreach ($this->workers as $worker) {
+            $futures[] = async(function () use ($worker, $cancellation): void {
+                $future = $this->workerFutures[$worker->getId()] ?? null;
+
                 try {
                     $worker->shutdown($cancellation);
                 } catch (ContextException) {
                     // Ignore if the worker has already died unexpectedly.
                 }
+
                 // We need to await this future here, otherwise we may not log things properly if the
                 // event-loop exits immediately after.
-                $future->await();
+                $future?->await();
             });
         }
 
@@ -290,31 +297,29 @@ final class Watcher
 
         try {
             if (!$exceptions) {
-                $this->deferred->complete();
+                $this->queue->complete();
                 return;
             }
 
             if (\count($exceptions) === 1) {
-                $exception = \current($exceptions);
-                $this->deferred->error(
-                    new ClusterException(
-                        "Stopping the cluster failed: " . $exception->getMessage(),
-                        previous: $exception,
-                    )
-                );
+                $exception = \array_shift($exceptions);
+                $this->queue->error(new ClusterException(
+                    "Stopping the cluster failed: " . $exception->getMessage(),
+                    previous: $exception,
+                ));
                 return;
             }
 
             $exception = new CompositeException($exceptions);
             $message = \implode('; ', \array_map(static fn (\Throwable $e) => $e->getMessage(), $exceptions));
-            $this->deferred->error(new ClusterException("Stopping the cluster failed: " . $message, 0, $exception));
+            $this->queue->error(new ClusterException("Stopping the cluster failed: " . $message, previous: $exception));
         } finally {
-            $this->deferred = null;
+            $this->workers = [];
         }
     }
 
     /**
-     * Broadcast data to all workers, sending data to active Cluster::getChannel()->receive() listeners.
+     * Broadcast data to all workers, sending data to active {@see Cluster::getChannel()::receive()} listeners.
      *
      * @param TSend $data
      */
@@ -322,16 +327,6 @@ final class Watcher
     {
         foreach ($this->workers as $worker) {
             $worker->send($data);
-        }
-    }
-
-    /**
-     * @param TReceive $data
-     */
-    private function handleMessage(mixed $data, Worker $worker): void
-    {
-        foreach ($this->onMessage as $onMessage) {
-            EventLoop::queue($onMessage, $data, $worker);
         }
     }
 }

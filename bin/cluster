@@ -244,4 +244,13 @@ try {
 
 $watcher->start($workers);
 
-$watcher->join();
+foreach ($watcher->getMessageIterator() as $message) {
+    $data = $message->getData();
+    $id = $message->getWorker()->getId();
+
+    if (is_scalar($data) || $data instanceof \Stringable) {
+        $logger->info(sprintf('Received message from worker %d: %s', $id, $data));
+    } else {
+        $logger->notice(sprintf('Received non-printable message from worker %d of type %s', $id, get_debug_type($data)));
+    }
+}

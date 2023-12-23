@@ -5,8 +5,10 @@ namespace Amp\Cluster\Test;
 use Amp\Cluster\Watcher;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
+use Amp\Pipeline\Pipeline;
 use Amp\TimeoutCancellation;
 use Monolog\Logger;
+use function Amp\async;
 use function Amp\delay;
 
 class WatcherTest extends AsyncTestCase
@@ -17,6 +19,8 @@ class WatcherTest extends AsyncTestCase
     {
         parent::setUp();
         $this->logger = new Logger('test-logger');
+
+        $this->setTimeout(5);
     }
 
     public function testDoubleStart(): void
@@ -53,9 +57,11 @@ class WatcherTest extends AsyncTestCase
         $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
 
         $invoked = false;
-        $watcher->onMessage(function (string $message) use (&$invoked) {
-            $invoked = true;
-            $this->assertSame('test-message', $message);
+        $future = async(function () use (&$invoked, $watcher): void {
+            foreach ($watcher->getMessageIterator() as $message) {
+                $invoked = true;
+                $this->assertSame('test-message', $message->getData());
+            }
         });
 
         try {
@@ -65,6 +71,8 @@ class WatcherTest extends AsyncTestCase
         } finally {
             $watcher->stop();
         }
+
+        $future->await();
     }
 
     public function testRestart(): void
@@ -72,9 +80,11 @@ class WatcherTest extends AsyncTestCase
         $watcher = new Watcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
 
         $invoked = 0;
-        $watcher->onMessage(function (string $message) use (&$invoked) {
-            ++$invoked;
-            $this->assertSame('test-message', $message);
+        $future = async(function () use (&$invoked, $watcher): void {
+            foreach ($watcher->getMessageIterator() as $message) {
+                ++$invoked;
+                $this->assertSame('test-message', $message->getData());
+            }
         });
 
         try {
@@ -88,6 +98,8 @@ class WatcherTest extends AsyncTestCase
         } finally {
             $watcher->stop();
         }
+
+        $future->await();
     }
 
     public function testGracefulSelfTermination(): void
@@ -95,9 +107,11 @@ class WatcherTest extends AsyncTestCase
         $watcher = new Watcher(__DIR__ . '/scripts/test-graceful-self-terminate.php', $this->logger, new LocalIpcHub);
 
         $invoked = 0;
-        $watcher->onMessage(function (string $message) use (&$invoked) {
-            ++$invoked;
-            $this->assertSame('Initiating shutdown', $message);
+        $future = async(function () use (&$invoked, $watcher): void {
+            foreach ($watcher->getMessageIterator() as $message) {
+                ++$invoked;
+                $this->assertSame('Initiating shutdown', $message->getData());
+            }
         });
 
         $watcher->start(1);
@@ -106,26 +120,29 @@ class WatcherTest extends AsyncTestCase
 
         $watcher->stop(new TimeoutCancellation(0.1)); // Give worker time to stop.
         $this->assertSame(1, $invoked);
+
+        $future->await();
     }
 
     public function testGracefulWatcherTermination(): void
     {
         $watcher = new Watcher(__DIR__ . '/scripts/test-graceful-terminate-worker.php', $this->logger, new LocalIpcHub);
 
-        $invoked = 0;
-        $watcher->onMessage(function (string $message) use (&$invoked, $watcher) {
-            $this->assertSame(match (++$invoked) {
-                1 => 'Active',
-                2 => 'Adios',
-            }, $message);
-            if ($invoked === 1) {
-                $watcher->stop(new TimeoutCancellation(0.1)); // Give worker time to stop.
-                echo "hey";
-            }
-        });
+        $received = 0;
 
         $watcher->start(1);
-        $watcher->join();
-        $this->assertSame(2, $invoked);
+
+        foreach ($watcher->getMessageIterator() as $message) {
+            $this->assertSame(match (++$received) {
+                1 => 'Active',
+                2 => 'Adios',
+            }, $message->getData());
+
+            if ($received === 1) {
+                async($watcher->stop(...), new TimeoutCancellation(0.1)); // Give worker time to stop.
+            }
+        }
+
+        $this->assertSame(2, $received);
     }
 }

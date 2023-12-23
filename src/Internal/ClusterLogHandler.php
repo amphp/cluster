@@ -8,6 +8,7 @@ use Monolog\Level;
 use Monolog\LogRecord;
 use Psr\Log\LogLevel;
 
+/** @internal */
 final class ClusterLogHandler extends AbstractProcessingHandler
 {
     /**
