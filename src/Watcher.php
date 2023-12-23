@@ -8,6 +8,8 @@ use Amp\CancelledException;
 use Amp\Cluster\Internal\ContextWorker;
 use Amp\CompositeException;
 use Amp\DeferredCancellation;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Future;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\ContextFactory;
@@ -30,6 +32,9 @@ use function Amp\async;
  */
 final class Watcher
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     public const WORKER_TIMEOUT = 5;
 
     private readonly ClusterServerSocketProvider $provider;

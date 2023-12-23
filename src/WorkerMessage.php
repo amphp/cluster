@@ -2,12 +2,18 @@
 
 namespace Amp\Cluster;
 
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
+
 /**
  * @template-covariant TReceive
  * @template TSend
  */
 final class WorkerMessage
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     /**
      * @param Worker<TSend> $worker
      * @param TReceive $data

@@ -6,6 +6,8 @@ use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Future;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\Serializer;
@@ -20,6 +22,9 @@ use function Amp\async;
 
 final class ClusterServerSocketProvider
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     private readonly BindContext $bindContext;
     private readonly Serializer $serializer;
 

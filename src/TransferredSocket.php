@@ -3,6 +3,8 @@
 namespace Amp\Cluster;
 
 use Amp\ByteStream\ResourceStream;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Socket\Socket;
 
 /**
@@ -10,6 +12,9 @@ use Amp\Socket\Socket;
  */
 final class TransferredSocket
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     /**
      * @param T $data
      */

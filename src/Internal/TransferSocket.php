@@ -4,6 +4,8 @@ namespace Amp\Cluster\Internal;
 
 use Amp\ByteStream\ResourceStream;
 use Amp\Cluster\TransferredResource;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 use Socket as SocketResource;
@@ -11,6 +13,9 @@ use Socket as SocketResource;
 /** @internal */
 final class TransferSocket
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     private readonly SocketResource $socket;
 
     private readonly \Closure $errorHandler;

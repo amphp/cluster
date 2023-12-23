@@ -2,6 +2,8 @@
 
 namespace Amp\Cluster\Internal;
 
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Sync\Channel;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;
@@ -11,6 +13,9 @@ use Psr\Log\LogLevel;
 /** @internal */
 final class ClusterLogHandler extends AbstractProcessingHandler
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     /**
      * @param value-of<Level::NAMES>|value-of<Level::VALUES>|Level|LogLevel::* $level
      *

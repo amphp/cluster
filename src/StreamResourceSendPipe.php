@@ -4,6 +4,8 @@ namespace Amp\Cluster;
 
 use Amp\ByteStream\ResourceStream;
 use Amp\Closable;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
 use Amp\Socket\Socket;
@@ -16,6 +18,9 @@ use Revolt\EventLoop\Suspension;
  */
 final class StreamResourceSendPipe implements Closable
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     private readonly Internal\TransferSocket $transferSocket;
 
     /** @var \SplQueue<array{Suspension<null|\Closure():never>, resource, string}> */

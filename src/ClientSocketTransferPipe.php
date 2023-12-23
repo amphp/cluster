@@ -5,6 +5,8 @@ namespace Amp\Cluster;
 use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\Closable;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
@@ -18,6 +20,9 @@ use Amp\Socket\SocketException;
  */
 final class ClientSocketTransferPipe implements Closable
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     /** @var StreamResourceReceivePipe<TReceive> */
     private readonly StreamResourceReceivePipe $receive;
 

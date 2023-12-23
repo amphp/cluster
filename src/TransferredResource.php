@@ -2,11 +2,17 @@
 
 namespace Amp\Cluster;
 
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
+
 /**
  * @template-covariant T
  */
 final class TransferredResource
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     /**
      * @param resource $resource Stream-socket resource.
      * @param T $data

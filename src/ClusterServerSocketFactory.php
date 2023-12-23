@@ -4,6 +4,8 @@ namespace Amp\Cluster;
 
 use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Socket\BindContext;
@@ -19,6 +21,9 @@ use function Amp\async;
 
 final class ClusterServerSocketFactory implements ServerSocketFactory
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     /** @var Channel<never, SocketAddress|null> */
     private readonly Channel $channel;
 

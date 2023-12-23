@@ -9,6 +9,8 @@ use Amp\Cluster\Internal\ClusterMessage;
 use Amp\Cluster\Internal\ClusterMessageType;
 use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
 use Amp\Socket\ResourceServerSocketFactory;
@@ -28,6 +30,9 @@ use function Amp\trapSignal;
  */
 final class Cluster implements Channel
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     private static ?self $cluster = null;
 
     public static function isWorker(): bool

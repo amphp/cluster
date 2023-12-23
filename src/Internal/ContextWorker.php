@@ -8,6 +8,8 @@ use Amp\Cluster\Watcher;
 use Amp\Cluster\Worker;
 use Amp\Cluster\WorkerMessage;
 use Amp\DeferredCancellation;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Future;
 use Amp\Parallel\Context\Context;
 use Amp\Parallel\Context\ProcessContext;
@@ -32,6 +34,9 @@ use function Amp\weakClosure;
  */
 final class ContextWorker extends AbstractLogger implements Worker
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     private const PING_TIMEOUT = 10;
 
     private int $lastActivity;

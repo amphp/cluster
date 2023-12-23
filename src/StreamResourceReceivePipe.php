@@ -7,6 +7,8 @@ use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Closable;
+use Amp\ForbidCloning;
+use Amp\ForbidSerialization;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
 use Amp\Socket\Socket;
@@ -19,6 +21,9 @@ use Revolt\EventLoop\Suspension;
  */
 final class StreamResourceReceivePipe implements Closable
 {
+    use ForbidCloning;
+    use ForbidSerialization;
+
     /** @var Suspension<(\Closure():never)|null>|null */
     private ?Suspension $waiting = null;
 
