@@ -37,8 +37,6 @@ final class Watcher
 
     public const WORKER_TIMEOUT = 5;
 
-    private readonly ClusterServerSocketProvider $provider;
-
     private readonly ContextFactory $contextFactory;
 
     private readonly Logger $logger;
@@ -71,6 +69,8 @@ final class Watcher
         string|array $script,
         PsrLogger $logger,
         private readonly IpcHub $hub = new LocalIpcHub(),
+        ?ContextFactory $contextFactory = null,
+        private readonly ClusterServerSocketProvider $provider = new ClusterServerSocketProvider(),
     ) {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
@@ -81,8 +81,7 @@ final class Watcher
             \is_array($script) ? \array_values(\array_map(\strval(...), $script)) : [$script],
         );
 
-        $this->contextFactory = new DefaultContextFactory(ipcHub: $this->hub);
-        $this->provider = new ClusterServerSocketProvider();
+        $this->contextFactory = $contextFactory ?? new DefaultContextFactory(ipcHub: $this->hub);
         $this->logger = $this->createLogger($logger);
 
         $this->queue = new Queue();
@@ -325,6 +324,7 @@ final class Watcher
      */
     public function broadcast(mixed $data): void
     {
+        $futures = [];
         foreach ($this->workers as $worker) {
             $worker->send($data);
         }
