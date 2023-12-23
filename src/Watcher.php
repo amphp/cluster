@@ -318,7 +318,7 @@ final class Watcher
     }
 
     /**
-     * Broadcast data to all workers, sending data to active {@see Cluster::getChannel()::receive()} listeners.
+     * Broadcast data to all workers, received by {@see Cluster::getChannel()::receive()} in workers.
      *
      * @param TSend $data
      */
@@ -326,7 +326,9 @@ final class Watcher
     {
         $futures = [];
         foreach ($this->workers as $worker) {
-            $worker->send($data);
+            $futures[] = async($worker->send(...), $data);
         }
+
+        Future\await($futures);
     }
 }
