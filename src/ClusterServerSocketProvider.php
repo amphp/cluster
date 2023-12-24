@@ -2,7 +2,10 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ReadableStream;
+use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
+use Amp\ByteStream\WritableBuffer;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\ForbidCloning;
@@ -11,7 +14,6 @@ use Amp\Future;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\Serializer;
 use Amp\Socket\BindContext;
-use Amp\Socket\ResourceSocket;
 use Amp\Socket\SocketAddress;
 use Amp\Socket\SocketException;
 use Amp\Sync\Channel;
@@ -44,12 +46,12 @@ final class ClusterServerSocketProvider
      *
      * @throws SocketException
      */
-    public function provideFor(ResourceSocket $socket, ?Cancellation $cancellation = null): Future
+    public function provideFor(ReadableStream&ResourceStream $stream, ?Cancellation $cancellation = null): Future
     {
         /** @var Channel<SocketAddress|null, never> $channel */
-        $channel = new StreamChannel($socket, $socket, $this->serializer);
+        $channel = new StreamChannel($stream, new WritableBuffer(), $this->serializer);
         /** @var StreamResourceSendPipe<SocketAddress> $pipe */
-        $pipe = new StreamResourceSendPipe($socket, $this->serializer);
+        $pipe = new StreamResourceSendPipe($stream, $this->serializer);
 
         $servers = &$this->servers;
         $bindContext = $this->bindContext;
