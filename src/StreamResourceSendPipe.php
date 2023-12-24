@@ -88,11 +88,6 @@ final class StreamResourceSendPipe implements Closable
         });
     }
 
-    public function __destruct()
-    {
-        $this->close();
-    }
-
     public function close(): void
     {
         $this->transferSocket->close();

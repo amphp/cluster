@@ -11,7 +11,6 @@ use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
-use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
@@ -83,11 +82,6 @@ final class StreamResourceReceivePipe implements Closable
             EventLoop::cancel($onReadable);
             $suspension?->resume(static fn () => throw new SocketException('The transfer socket closed unexpectedly'));
         });
-    }
-
-    public function __destruct()
-    {
-        $this->close();
     }
 
     public function close(): void
