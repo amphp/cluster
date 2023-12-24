@@ -24,6 +24,8 @@ final class StreamResourceReceivePipe implements Closable
     use ForbidCloning;
     use ForbidSerialization;
 
+    private readonly Internal\TransferSocket $transferSocket;
+
     /** @var Suspension<(\Closure():never)|null>|null */
     private ?Suspension $waiting = null;
 
@@ -31,13 +33,13 @@ final class StreamResourceReceivePipe implements Closable
     private readonly \SplQueue $receiveQueue;
 
     public function __construct(
-        private readonly Socket&ResourceStream $socket,
+        ResourceStream $resourceStream,
         private readonly Serializer $serializer,
     ) {
-        $transferSocket = new Internal\TransferSocket($socket);
+        $this->transferSocket = $transferSocket = new Internal\TransferSocket($resourceStream);
         $this->receiveQueue = $receiveQueue = new \SplQueue();
 
-        $streamResource = $socket->getResource();
+        $streamResource = $resourceStream->getResource();
         if (!\is_resource($streamResource)) {
             throw new SocketException('The provided socket has already been closed');
         }
@@ -48,12 +50,11 @@ final class StreamResourceReceivePipe implements Closable
             static function (string $callbackId, $stream) use (
                 &$suspension,
                 $transferSocket,
-                $socket,
                 $receiveQueue,
             ): void {
                 try {
                     if (\feof($stream)) {
-                        $socket->close();
+                        $transferSocket->close();
                         $suspension?->resume(static fn () => throw new SocketException(
                             'The transfer socket closed while waiting to receive a socket',
                         ));
@@ -67,7 +68,7 @@ final class StreamResourceReceivePipe implements Closable
                         $suspension?->resume();
                     }
                 } catch (\Throwable $exception) {
-                    $socket->close();
+                    $transferSocket->close();
                     $suspension?->resume(static fn () => throw new SocketException(
                         'The transfer socket threw an exception: ' . $exception->getMessage(),
                         previous: $exception,
@@ -78,7 +79,7 @@ final class StreamResourceReceivePipe implements Closable
             },
         );
 
-        $this->socket->onClose(static function () use (&$suspension, $onReadable): void {
+        $this->transferSocket->onClose(static function () use (&$suspension, $onReadable): void {
             EventLoop::cancel($onReadable);
             $suspension?->resume(static fn () => throw new SocketException('The transfer socket closed unexpectedly'));
         });
@@ -91,17 +92,17 @@ final class StreamResourceReceivePipe implements Closable
 
     public function close(): void
     {
-        $this->socket->close();
+        $this->transferSocket->close();
     }
 
     public function isClosed(): bool
     {
-        return $this->socket->isClosed();
+        return $this->transferSocket->isClosed();
     }
 
     public function onClose(\Closure $onClose): void
     {
-        $this->socket->onClose($onClose);
+        $this->transferSocket->onClose($onClose);
     }
 
     /**
@@ -117,7 +118,7 @@ final class StreamResourceReceivePipe implements Closable
             throw new PendingReadError();
         }
 
-        if ($this->socket->isClosed()) {
+        if ($this->transferSocket->isClosed()) {
             throw new SocketException('The transfer socket has been closed');
         }
 

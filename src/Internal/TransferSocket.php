@@ -3,15 +3,16 @@
 namespace Amp\Cluster\Internal;
 
 use Amp\ByteStream\ResourceStream;
+use Amp\Closable;
 use Amp\Cluster\TransferredResource;
+use Amp\DeferredFuture;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
-use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 use Socket as SocketResource;
 
 /** @internal */
-final class TransferSocket
+final class TransferSocket implements Closable
 {
     use ForbidCloning;
     use ForbidSerialization;
@@ -20,7 +21,9 @@ final class TransferSocket
 
     private readonly \Closure $errorHandler;
 
-    public function __construct(Socket&ResourceStream $socket)
+    private readonly DeferredFuture $onClose;
+
+    public function __construct(ResourceStream $socket)
     {
         if (!\extension_loaded('sockets')) {
             throw new \Error('ext-sockets is required for ' . self::class);
@@ -37,7 +40,39 @@ final class TransferSocket
         }
 
         $this->socket = $socketResource;
-        $this->errorHandler = static fn () => true;
+        $this->errorHandler = $errorHandler = static fn () => true;
+        $this->onClose = new DeferredFuture();
+
+        $this->onClose(static function () use ($socketResource, $errorHandler): void {
+            \set_error_handler($errorHandler);
+            try {
+                \socket_close($socketResource);
+            } finally {
+                \restore_error_handler();
+            }
+        });
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+    }
+
+    public function close(): void
+    {
+        if (!$this->onClose->isComplete()) {
+            $this->onClose->complete();
+        }
+    }
+
+    public function isClosed(): bool
+    {
+        return $this->onClose->isComplete();
+    }
+
+    public function onClose(\Closure $onClose): void
+    {
+        $this->onClose->getFuture()->finally($onClose);
     }
 
     /**

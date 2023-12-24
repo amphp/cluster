@@ -2,10 +2,9 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ResourceStream;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
-use Amp\Socket\Socket;
+use Amp\Socket\ResourceSocket;
 
 /**
  * @template-covariant T
@@ -19,12 +18,12 @@ final class TransferredSocket
      * @param T $data
      */
     public function __construct(
-        private readonly Socket&ResourceStream $socket,
+        private readonly ResourceSocket $socket,
         private readonly mixed $data,
     ) {
     }
 
-    public function getSocket(): Socket&ResourceStream
+    public function getSocket(): ResourceSocket
     {
         return $this->socket;
     }

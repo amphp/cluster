@@ -2,7 +2,6 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
@@ -10,9 +9,9 @@ use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Socket\BindContext;
 use Amp\Socket\ResourceServerSocket;
+use Amp\Socket\ResourceSocket;
 use Amp\Socket\ServerSocket;
 use Amp\Socket\ServerSocketFactory;
-use Amp\Socket\Socket;
 use Amp\Socket\SocketAddress;
 use Amp\Socket\SocketException;
 use Amp\Sync\Channel;
@@ -30,7 +29,7 @@ final class ClusterServerSocketFactory implements ServerSocketFactory
     /** @var StreamResourceReceivePipe<null> */
     private readonly StreamResourceReceivePipe $pipe;
 
-    public function __construct(Socket&ResourceStream $socket)
+    public function __construct(ResourceSocket $socket)
     {
         $serializer = new NativeSerializer();
         $this->channel = new StreamChannel($socket, $socket, $serializer);

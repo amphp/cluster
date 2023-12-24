@@ -6,6 +6,7 @@ use Amp\Cluster\ClusterServerSocketFactory;
 use Amp\Parallel\Ipc;
 use Amp\SignalCancellation;
 use Amp\Socket\InternetAddress;
+use Amp\Socket\ResourceSocket;
 use Amp\Socket\SocketAddress;
 use Amp\Sync\Channel;
 
@@ -23,8 +24,8 @@ return function (Channel $channel): void {
     printf("Received %s from %s\n", base64_encode($key), $uri);
 
     $socket = Ipc\connect($uri, $key);
-    if (!$socket instanceof ResourceStream) {
-        throw new \Error("Expected instance of " . ResourceStream::class);
+    if (!$socket instanceof ResourceSocket) {
+        throw new \TypeError("Expected instance of " . ResourceStream::class);
     }
 
     $clusterServerFactory = new ClusterServerSocketFactory($socket);

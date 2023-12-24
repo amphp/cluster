@@ -2,11 +2,11 @@
 
 namespace Amp\Cluster\Internal;
 
-use Amp\ByteStream\ResourceStream;
 use Amp\Cluster\Cluster;
 use Amp\Cluster\Watcher;
 use Amp\Future;
 use Amp\Parallel\Ipc;
+use Amp\Socket\ResourceSocket;
 use Amp\Sync\Channel;
 use Amp\TimeoutCancellation;
 use function Amp\async;
@@ -44,8 +44,8 @@ return static function (Channel $channel) use ($argc, $argv): void {
     }
 
     try {
-        if (!$transferSocket instanceof ResourceStream) {
-            throw new \TypeError('Socket connector must return an instance of ' . ResourceStream::class
+        if (!$transferSocket instanceof ResourceSocket) {
+            throw new \TypeError('Socket connector must return an instance of ' . ResourceSocket::class
                 . ' in order to be used to transfer other sockets');
         }
 

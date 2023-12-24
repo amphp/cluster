@@ -8,7 +8,6 @@ use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
-use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 use Revolt\EventLoop;
 use Revolt\EventLoop\Suspension;
@@ -29,13 +28,13 @@ final class StreamResourceSendPipe implements Closable
     private readonly string $onWritable;
 
     public function __construct(
-        private readonly Socket&ResourceStream $socket,
+        ResourceStream $resourceStream,
         private readonly Serializer $serializer,
     ) {
-        $this->transferSocket = $transferSocket = new Internal\TransferSocket($socket);
+        $this->transferSocket = $transferSocket = new Internal\TransferSocket($resourceStream);
         $this->transferQueue = $transferQueue = new \SplQueue();
 
-        $streamResource = $socket->getResource();
+        $streamResource = $resourceStream->getResource();
         if (!\is_resource($streamResource)) {
             throw new SocketException('The provided socket has already been closed');
         }
@@ -44,11 +43,10 @@ final class StreamResourceSendPipe implements Closable
             $streamResource,
             static function (string $callbackId, $stream) use (
                 $transferSocket,
-                $socket,
                 $transferQueue,
             ): void {
                 if (\feof($stream)) {
-                    $socket->close();
+                    $transferSocket->close();
                     return;
                 }
 
@@ -77,7 +75,7 @@ final class StreamResourceSendPipe implements Closable
             },
         ));
 
-        $this->socket->onClose(static function () use ($transferQueue, $onWritable): void {
+        $this->transferSocket->onClose(static function () use ($transferQueue, $onWritable): void {
             EventLoop::cancel($onWritable);
 
             while (!$transferQueue->isEmpty()) {
@@ -97,17 +95,17 @@ final class StreamResourceSendPipe implements Closable
 
     public function close(): void
     {
-        $this->socket->close();
+        $this->transferSocket->close();
     }
 
     public function isClosed(): bool
     {
-        return $this->socket->isClosed();
+        return $this->transferSocket->isClosed();
     }
 
     public function onClose(\Closure $onClose): void
     {
-        $this->socket->onClose($onClose);
+        $this->transferSocket->onClose($onClose);
     }
 
     /**

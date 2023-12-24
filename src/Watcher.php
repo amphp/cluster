@@ -18,6 +18,7 @@ use Amp\Parallel\Ipc\IpcHub;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
+use Amp\Socket\ResourceSocket;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
 use Monolog\Handler\PsrHandler;
@@ -63,7 +64,7 @@ final class Watcher
 
     /**
      * @param string|array<string> $script Script path and optional arguments.
-     * @param IpcHub $hub The sockets returned from {@see IpcHub::accept()} must also implement {@see ResourceStream}.
+     * @param IpcHub $hub Sockets returned from {@see IpcHub::accept()} must be an instance of {@see ResourceSocket}.
      */
     public function __construct(
         string|array $script,
@@ -169,7 +170,7 @@ final class Watcher
             throw new ClusterException("Starting the cluster worker failed", previous: $exception);
         }
 
-        if (!$socket instanceof ResourceStream) {
+        if (!$socket instanceof ResourceSocket) {
             throw new \TypeError(\sprintf(
                 "The %s instance returned from %s::accept() must also implement %s",
                 Socket::class,

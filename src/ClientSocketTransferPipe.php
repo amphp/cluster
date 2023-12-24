@@ -2,7 +2,6 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\Closable;
 use Amp\ForbidCloning;
@@ -11,7 +10,6 @@ use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
 use Amp\Socket\ResourceSocket;
-use Amp\Socket\Socket;
 use Amp\Socket\SocketException;
 
 /**
@@ -30,7 +28,7 @@ final class ClientSocketTransferPipe implements Closable
     private readonly StreamResourceSendPipe $send;
 
     public function __construct(
-        Socket&ResourceStream $socket,
+        ResourceSocket $socket,
         Serializer $serializer = new NativeSerializer(),
     ) {
         $this->receive = new StreamResourceReceivePipe($socket, $serializer);
@@ -66,7 +64,7 @@ final class ClientSocketTransferPipe implements Closable
      * @throws SerializationException
      * @throws SocketException
      */
-    public function send(Socket&ResourceStream $socket, mixed $data = null): void
+    public function send(ResourceSocket $socket, mixed $data = null): void
     {
         $resource = $socket->getResource();
         if (!\is_resource($resource)) {

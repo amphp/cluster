@@ -2,7 +2,6 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\Cluster\Internal\ClusterLogHandler;
 use Amp\Cluster\Internal\ClusterMessage;
@@ -14,8 +13,8 @@ use Amp\ForbidSerialization;
 use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
 use Amp\Socket\ResourceServerSocketFactory;
+use Amp\Socket\ResourceSocket;
 use Amp\Socket\ServerSocketFactory;
-use Amp\Socket\Socket;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use Monolog\Handler\HandlerInterface as MonologHandler;
@@ -123,7 +122,7 @@ final class Cluster implements Channel
     /**
      * @param positive-int $contextId
      */
-    private static function run(int $contextId, Channel $channel, Socket&ResourceStream $transferSocket): void
+    private static function run(int $contextId, Channel $channel, ResourceSocket $transferSocket): void
     {
         self::$cluster = new self($contextId, $channel, new ClusterServerSocketFactory($transferSocket));
         self::$cluster->loop();
