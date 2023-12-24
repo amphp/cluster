@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster;
 
+use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\Closable;
 use Amp\ForbidCloning;
@@ -28,11 +29,11 @@ final class ClientSocketTransferPipe implements Closable
     private readonly StreamResourceSendPipe $send;
 
     public function __construct(
-        ResourceSocket $socket,
+        ResourceStream $resourceStream,
         Serializer $serializer = new NativeSerializer(),
     ) {
-        $this->receive = new StreamResourceReceivePipe($socket, $serializer);
-        $this->send = new StreamResourceSendPipe($socket, $serializer);
+        $this->receive = new StreamResourceReceivePipe($resourceStream, $serializer);
+        $this->send = new StreamResourceSendPipe($resourceStream, $serializer);
     }
 
     /**
@@ -64,9 +65,9 @@ final class ClientSocketTransferPipe implements Closable
      * @throws SerializationException
      * @throws SocketException
      */
-    public function send(ResourceSocket $socket, mixed $data = null): void
+    public function send(ResourceStream $resourceStream, mixed $data = null): void
     {
-        $resource = $socket->getResource();
+        $resource = $resourceStream->getResource();
         if (!\is_resource($resource)) {
             throw new SocketException('The provided socket has already been closed');
         }
@@ -77,6 +78,7 @@ final class ClientSocketTransferPipe implements Closable
     public function close(): void
     {
         $this->receive->close();
+        $this->send->close();
     }
 
     public function isClosed(): bool
