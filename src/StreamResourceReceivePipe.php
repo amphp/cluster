@@ -9,6 +9,7 @@ use Amp\CancelledException;
 use Amp\Closable;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
+use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
 use Amp\Socket\SocketException;
@@ -33,7 +34,7 @@ final class StreamResourceReceivePipe implements Closable
 
     public function __construct(
         ResourceStream $resourceStream,
-        private readonly Serializer $serializer,
+        private readonly Serializer $serializer = new NativeSerializer(),
     ) {
         $this->transferSocket = $transferSocket = new Internal\TransferSocket($resourceStream);
         $this->receiveQueue = $receiveQueue = new \SplQueue();
