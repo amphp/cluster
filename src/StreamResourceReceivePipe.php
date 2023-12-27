@@ -101,13 +101,13 @@ final class StreamResourceReceivePipe implements Closable
     }
 
     /**
-     * @return TransferredResource<T>|null Object containing the received stream-socket resource and the data sent
+     * @return TransferredResource<T> Object containing the received stream-socket resource and the data sent
      * or null if the transfer pipe is closed.
      *
      * @throws SocketException
      * @throws SerializationException
      */
-    public function receive(?Cancellation $cancellation = null): ?TransferredResource
+    public function receive(?Cancellation $cancellation = null): TransferredResource
     {
         if ($this->waiting !== null) {
             throw new PendingReadError();

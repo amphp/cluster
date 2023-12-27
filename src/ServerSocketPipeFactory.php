@@ -60,9 +60,6 @@ final class ServerSocketPipeFactory implements ServerSocketFactory
             $this->channel->send($address);
 
             $received = $this->pipe->receive();
-            if (!$received) {
-                throw new SocketException('Transfer pipe closed before server socket was received');
-            }
         } catch (ChannelException|SerializationException $exception) {
             throw new SocketException(
                 'Failed sending request to bind server socket: ' . $exception->getMessage(),
