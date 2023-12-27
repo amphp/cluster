@@ -8,6 +8,7 @@ use Amp\ByteStream\StreamChannel;
 use Amp\ByteStream\WritableBuffer;
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\Cluster\Internal\StreamResourceSendPipe;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Future;

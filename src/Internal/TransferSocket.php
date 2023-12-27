@@ -4,12 +4,11 @@ namespace Amp\Cluster\Internal;
 
 use Amp\ByteStream\ResourceStream;
 use Amp\Closable;
-use Amp\Cluster\TransferredResource;
 use Amp\DeferredFuture;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Socket\SocketException;
-use Socket as SocketResource;
+use Socket as ExtSocketResource;
 
 /** @internal */
 final class TransferSocket implements Closable
@@ -17,7 +16,7 @@ final class TransferSocket implements Closable
     use ForbidCloning;
     use ForbidSerialization;
 
-    private readonly SocketResource $socket;
+    private readonly ExtSocketResource $socket;
 
     private readonly \Closure $errorHandler;
 
@@ -35,7 +34,7 @@ final class TransferSocket implements Closable
         }
 
         $socketResource = \socket_import_stream($streamResource);
-        if (!$socketResource instanceof SocketResource) {
+        if (!$socketResource instanceof ExtSocketResource) {
             throw new SocketException('Unable to import transfer socket from stream socket resource');
         }
 
@@ -112,7 +111,7 @@ final class TransferSocket implements Closable
         $transferredData = $data["iov"][0];
         $transferredSocket = $data["control"][0]["data"][0];
 
-        \assert(\is_string($transferredData) && $transferredSocket instanceof SocketResource);
+        \assert(\is_string($transferredData) && $transferredSocket instanceof ExtSocketResource);
 
         $transferredStream = \socket_export_stream($transferredSocket);
         if (!$transferredStream) {

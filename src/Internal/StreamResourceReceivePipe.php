@@ -1,15 +1,15 @@
 <?php declare(strict_types=1);
 
-namespace Amp\Cluster;
+namespace Amp\Cluster\Internal;
 
 use Amp\ByteStream\PendingReadError;
 use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Closable;
+use Amp\Cluster\Internal;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
-use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Serialization\Serializer;
 use Amp\Socket\SocketException;
@@ -34,7 +34,7 @@ final class StreamResourceReceivePipe implements Closable
 
     public function __construct(
         ResourceStream $resourceStream,
-        private readonly Serializer $serializer = new NativeSerializer(),
+        private readonly Serializer $serializer,
     ) {
         $this->transferSocket = $transferSocket = new Internal\TransferSocket($resourceStream);
         $this->receiveQueue = $receiveQueue = new \SplQueue();

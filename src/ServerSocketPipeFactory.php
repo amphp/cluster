@@ -6,6 +6,7 @@ use Amp\ByteStream\ReadableBuffer;
 use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
 use Amp\ByteStream\WritableStream;
+use Amp\Cluster\Internal\StreamResourceReceivePipe;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Serialization\NativeSerializer;
@@ -34,7 +35,7 @@ final class ServerSocketPipeFactory implements ServerSocketFactory
     public function __construct(WritableStream&ResourceStream $stream)
     {
         $serializer = new NativeSerializer();
-        $this->channel = new StreamChannel(new ReadableBuffer(), $stream, $serializer);
+        $this->channel = new StreamChannel(new ReadableBuffer(''), $stream, $serializer);
         $this->pipe = new StreamResourceReceivePipe($stream, $serializer);
     }
 

@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace Amp\Cluster;
+namespace Amp\Cluster\Internal;
 
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
