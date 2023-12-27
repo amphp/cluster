@@ -126,7 +126,7 @@ final class Cluster implements Channel
      */
     private static function run(int $contextId, Channel $channel, ResourceSocket $transferSocket): void
     {
-        self::$cluster = new self($contextId, $channel, new ClusterServerSocketFactory($transferSocket));
+        self::$cluster = new self($contextId, $channel, new ServerSocketPipeFactory($transferSocket));
         self::$cluster->loop();
     }
 
@@ -150,7 +150,7 @@ final class Cluster implements Channel
     private function __construct(
         private readonly int $contextId,
         private readonly Channel $ipcChannel,
-        private readonly ClusterServerSocketFactory $serverSocketFactory,
+        private readonly ServerSocketPipeFactory $serverSocketFactory,
     ) {
         $this->queue = new Queue();
         $this->iterator = $this->queue->iterate();

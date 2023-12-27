@@ -20,7 +20,7 @@ use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use function Amp\async;
 
-final class ClusterServerSocketFactory implements ServerSocketFactory
+final class ServerSocketPipeFactory implements ServerSocketFactory
 {
     use ForbidCloning;
     use ForbidSerialization;

@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-use Amp\Cluster\ClusterServerSocketProvider;
+use Amp\Cluster\ServerSocketPipeProvider;
 use Amp\Parallel\Context\ProcessContext;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use function Amp\async;
@@ -11,7 +11,7 @@ require dirname(__DIR__) . "/vendor/autoload.php";
 $ipcHub = new LocalIpcHub();
 
 echo "Making cluster server provider\n";
-$provider = new ClusterServerSocketProvider();
+$provider = new ServerSocketPipeProvider();
 
 $processes = [];
 

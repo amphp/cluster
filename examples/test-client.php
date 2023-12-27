@@ -2,7 +2,7 @@
 
 use Amp\ByteStream\ResourceStream;
 use Amp\CancelledException;
-use Amp\Cluster\ClusterServerSocketFactory;
+use Amp\Cluster\ServerSocketPipeFactory;
 use Amp\Parallel\Ipc;
 use Amp\SignalCancellation;
 use Amp\Socket\InternetAddress;
@@ -28,7 +28,7 @@ return function (Channel $channel): void {
         throw new \TypeError("Expected instance of " . ResourceStream::class);
     }
 
-    $clusterServerFactory = new ClusterServerSocketFactory($socket);
+    $clusterServerFactory = new ServerSocketPipeFactory($socket);
 
     $server = $clusterServerFactory->listen(new InternetAddress('127.0.0.1', 9337));
 

@@ -71,7 +71,7 @@ final class ClusterWatcher
         PsrLogger $logger,
         private readonly IpcHub $hub = new LocalIpcHub(),
         ?ContextFactory $contextFactory = null,
-        private readonly ClusterServerSocketProvider $provider = new ClusterServerSocketProvider(),
+        private readonly ServerSocketPipeProvider $provider = new ServerSocketPipeProvider(),
     ) {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");

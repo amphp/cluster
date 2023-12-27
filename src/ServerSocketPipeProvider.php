@@ -21,7 +21,7 @@ use Amp\Sync\ChannelException;
 use const Amp\Process\IS_WINDOWS;
 use function Amp\async;
 
-final class ClusterServerSocketProvider
+final class ServerSocketPipeProvider
 {
     use ForbidCloning;
     use ForbidSerialization;
@@ -68,7 +68,7 @@ final class ClusterServerSocketProvider
                     }
 
                     $uri = (string) $address;
-                    $server = $servers[$uri] ??= self::listen($uri, $bindContext);
+                    $server = $servers[$uri] ??= self::bind($uri, $bindContext);
 
                     $pipe->send($server, $address);
                 }
@@ -85,7 +85,7 @@ final class ClusterServerSocketProvider
     /**
      * @return resource
      */
-    private static function listen(string $uri, BindContext $bindContext)
+    private static function bind(string $uri, BindContext $bindContext)
     {
         static $errorHandler;
 
