@@ -4,8 +4,8 @@ namespace Amp\Cluster\Test;
 
 use Amp\ByteStream\StreamChannel;
 use Amp\Cluster\Cluster;
-use Amp\Cluster\Watcher;
-use Amp\Cluster\WorkerMessage;
+use Amp\Cluster\ClusterWatcher;
+use Amp\Cluster\ClusterWorkerMessage;
 use Amp\PHPUnit\AsyncTestCase;
 use Amp\Pipeline\Pipeline;
 use Amp\Socket;
@@ -62,7 +62,7 @@ class ClusterTest extends AsyncTestCase
 
     public function testSelectPort(): void
     {
-        $watcher = new Watcher(__DIR__ . '/scripts/test-select-port.php', $this->logger);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-select-port.php', $this->logger);
 
         $count = 3;
 
@@ -71,7 +71,7 @@ class ClusterTest extends AsyncTestCase
 
             $ports = Pipeline::fromIterable($watcher->getMessageIterator())
                 ->take(3)
-                ->map(fn (WorkerMessage $m) => $m->getData())
+                ->map(fn (ClusterWorkerMessage $m) => $m->getData())
                 ->toArray();
 
             $this->assertCount($count, $ports);

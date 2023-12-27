@@ -5,7 +5,7 @@ namespace Amp\Cluster;
 use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\Cluster\Internal\ContextWorker;
+use Amp\Cluster\Internal\ContextClusterWorker;
 use Amp\CompositeException;
 use Amp\DeferredCancellation;
 use Amp\ForbidCloning;
@@ -31,7 +31,7 @@ use function Amp\async;
  * @template-covariant TReceive
  * @template TSend
  */
-final class Watcher
+final class ClusterWatcher
 {
     use ForbidCloning;
     use ForbidSerialization;
@@ -50,16 +50,16 @@ final class Watcher
     /** @var positive-int */
     private int $nextId = 1;
 
-    /** @var array<int, Internal\ContextWorker<TReceive, TSend>> */
+    /** @var array<int, Internal\ContextClusterWorker<TReceive, TSend>> */
     private array $workers = [];
 
     /** @var array<int, Future<void>> */
     private array $workerFutures = [];
 
-    /** @var Queue<WorkerMessage<TReceive, TSend>> */
+    /** @var Queue<ClusterWorkerMessage<TReceive, TSend>> */
     private readonly Queue $queue;
 
-    /** @var ConcurrentIterator<WorkerMessage<TReceive, TSend>> */
+    /** @var ConcurrentIterator<ClusterWorkerMessage<TReceive, TSend>> */
     private readonly ConcurrentIterator $iterator;
 
     /**
@@ -111,7 +111,7 @@ final class Watcher
      * Returns a concurrent iterator of messages sent from workers using {@see Cluster::getChannel()::send()}.
      * The returned iterator is completed when the cluster watcher is stopped.
      *
-     * @return ConcurrentIterator<WorkerMessage<TReceive, TSend>>
+     * @return ConcurrentIterator<ClusterWorkerMessage<TReceive, TSend>>
      */
     public function getMessageIterator(): ConcurrentIterator
     {
@@ -148,7 +148,7 @@ final class Watcher
     /**
      * @param positive-int $id
      */
-    private function startWorker(int $id): ContextWorker
+    private function startWorker(int $id): ContextClusterWorker
     {
         $context = $this->contextFactory->start($this->script);
 
@@ -180,7 +180,7 @@ final class Watcher
         }
 
         $deferredCancellation = new DeferredCancellation();
-        $worker = new Internal\ContextWorker(
+        $worker = new Internal\ContextClusterWorker(
             $id,
             $context,
             $socket,

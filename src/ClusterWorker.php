@@ -5,7 +5,7 @@ namespace Amp\Cluster;
 /**
  * @template TSend
  */
-interface Worker
+interface ClusterWorker
 {
     /**
      * @return positive-int The worker ID, equivalent to {@see Cluster::getId()} on the worker side

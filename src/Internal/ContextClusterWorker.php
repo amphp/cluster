@@ -4,9 +4,9 @@ namespace Amp\Cluster\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\Cluster\Watcher;
-use Amp\Cluster\Worker;
-use Amp\Cluster\WorkerMessage;
+use Amp\Cluster\ClusterWatcher;
+use Amp\Cluster\ClusterWorker;
+use Amp\Cluster\ClusterWorkerMessage;
 use Amp\DeferredCancellation;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
@@ -28,11 +28,11 @@ use function Amp\weakClosure;
  * @template-covariant TReceive
  * @template TSend
  *
- * @implements Worker<TSend>
+ * @implements ClusterWorker<TSend>
  *
  * @internal
  */
-final class ContextWorker extends AbstractLogger implements Worker
+final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
 {
     use ForbidCloning;
     use ForbidSerialization;
@@ -45,8 +45,8 @@ final class ContextWorker extends AbstractLogger implements Worker
 
     /**
      * @param positive-int $id
-     * @param Context<mixed, ClusterMessage|null, ClusterMessage|null> $context
-     * @param Queue<WorkerMessage<TReceive, TSend>> $queue
+     * @param Context<mixed, WorkerMessage|null, WatcherMessage|null> $context
+     * @param Queue<ClusterWorkerMessage<TReceive, TSend>> $queue
      */
     public function __construct(
         private readonly int $id,
@@ -67,7 +67,7 @@ final class ContextWorker extends AbstractLogger implements Worker
 
     public function send(mixed $data): void
     {
-        $this->context->send(new ClusterMessage(ClusterMessageType::Data, $data));
+        $this->context->send(new WatcherMessage(WatcherMessageType::Data, $data));
     }
 
     public function run(): void
@@ -79,7 +79,7 @@ final class ContextWorker extends AbstractLogger implements Worker
             }
 
             try {
-                $this->context->send(new ClusterMessage(ClusterMessageType::Ping, 0));
+                $this->context->send(new WatcherMessage(WatcherMessageType::Ping, 0));
             } catch (\Throwable) {
                 $this->close();
             }
@@ -90,28 +90,26 @@ final class ContextWorker extends AbstractLogger implements Worker
         try {
             // We get null as last message from the cluster-runner in case it's shutting down cleanly.
             // In that case, join it.
-            /** @var ClusterMessage $message */
+            /** @var WorkerMessage $message */
             while ($message = $this->context->receive($cancellation)) {
                 $this->lastActivity = \time();
 
                 /** @psalm-suppress UnhandledMatchCondition False positive. */
                 match ($message->type) {
-                    ClusterMessageType::Pong => null,
+                    WorkerMessageType::Pong => null,
 
-                    ClusterMessageType::Data => $this->queue
-                        ->pushAsync(new WorkerMessage($this, $message->data))
+                    WorkerMessageType::Data => $this->queue
+                        ->pushAsync(new ClusterWorkerMessage($this, $message->data))
                         ->ignore(),
 
-                    ClusterMessageType::Log => \array_map(
+                    WorkerMessageType::Log => \array_map(
                         static fn (MonologHandler $handler) => $handler->handle($message->data),
                         $this->logger->getHandlers(),
                     ),
-
-                    ClusterMessageType::Ping => throw new \RuntimeException('Unexpected message type received'),
                 };
             }
 
-            $this->joinFuture->await(new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
+            $this->joinFuture->await(new TimeoutCancellation(ClusterWatcher::WORKER_TIMEOUT));
         } catch (\Throwable $exception) {
             $this->joinFuture->ignore();
             throw $exception;

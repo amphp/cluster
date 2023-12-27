@@ -4,8 +4,10 @@ namespace Amp\Cluster;
 
 use Amp\Cancellation;
 use Amp\Cluster\Internal\ClusterLogHandler;
-use Amp\Cluster\Internal\ClusterMessage;
-use Amp\Cluster\Internal\ClusterMessageType;
+use Amp\Cluster\Internal\WatcherMessage;
+use Amp\Cluster\Internal\WatcherMessageType;
+use Amp\Cluster\Internal\WorkerMessage;
+use Amp\Cluster\Internal\WorkerMessageType;
 use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
 use Amp\ForbidCloning;
@@ -143,7 +145,7 @@ final class Cluster implements Channel
 
     /**
      * @param int<0, max> $contextId
-     * @param Channel<ClusterMessage, ClusterMessage> $ipcChannel
+     * @param Channel<WatcherMessage, WorkerMessage> $ipcChannel
      */
     private function __construct(
         private readonly int $contextId,
@@ -169,7 +171,7 @@ final class Cluster implements Channel
 
     public function send(mixed $data): void
     {
-        $this->ipcChannel->send(new ClusterMessage(ClusterMessageType::Data, $data));
+        $this->ipcChannel->send(new WorkerMessage(WorkerMessageType::Data, $data));
     }
 
     public function close(): void
@@ -194,21 +196,19 @@ final class Cluster implements Channel
 
         try {
             while ($message = $this->ipcChannel->receive($abortCancellation)) {
-                if (!$message instanceof ClusterMessage) {
+                if (!$message instanceof WatcherMessage) {
                     throw new \ValueError(
                         'Unexpected message type received on internal channel: ' . \get_debug_type($message),
                     );
                 }
 
                 match ($message->type) {
-                    ClusterMessageType::Ping => $this->ipcChannel->send(
-                        new ClusterMessage(ClusterMessageType::Pong, $message->data),
+                    WatcherMessageType::Ping => $this->ipcChannel->send(
+                        new WorkerMessage(WorkerMessageType::Pong, $message->data),
                     ),
 
-                    ClusterMessageType::Data => $this->queue->pushAsync($message->data)->ignore(),
+                    WatcherMessageType::Data => $this->queue->pushAsync($message->data)->ignore(),
 
-                    ClusterMessageType::Pong,
-                    ClusterMessageType::Log => throw new \RuntimeException('Unexpected message type received'),
                 };
             }
         } catch (\Throwable) {

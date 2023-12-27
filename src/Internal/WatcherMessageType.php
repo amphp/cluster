@@ -3,10 +3,8 @@
 namespace Amp\Cluster\Internal;
 
 /** @internal */
-enum ClusterMessageType
+enum WatcherMessageType
 {
     case Ping;
-    case Pong;
     case Data;
-    case Log;
 }

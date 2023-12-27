@@ -9,17 +9,17 @@ use Amp\ForbidSerialization;
  * @template-covariant TReceive
  * @template TSend
  */
-final class WorkerMessage
+final class ClusterWorkerMessage
 {
     use ForbidCloning;
     use ForbidSerialization;
 
     /**
-     * @param Worker<TSend> $worker
+     * @param ClusterWorker<TSend> $worker
      * @param TReceive $data
      */
     public function __construct(
-        private readonly Worker $worker,
+        private readonly ClusterWorker $worker,
         private readonly mixed $data,
     ) {
     }
@@ -33,9 +33,9 @@ final class WorkerMessage
     }
 
     /**
-     * @return Worker<TSend> Returns the worker which sent the message.
+     * @return ClusterWorker<TSend> Returns the worker which sent the message.
      */
-    public function getWorker(): Worker
+    public function getWorker(): ClusterWorker
     {
         return $this->worker;
     }

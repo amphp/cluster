@@ -3,7 +3,7 @@
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
-use Amp\Cluster\Watcher;
+use Amp\Cluster\ClusterWatcher;
 use Amp\File;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
@@ -214,7 +214,7 @@ if (isset($pidFilePath)) {
 }
 
 array_unshift($workerArguments, $arguments->get("script"));
-$watcher = new Watcher($workerArguments, $logger);
+$watcher = new ClusterWatcher($workerArguments, $logger);
 
 try {
     $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger, $shutdownTimeout): void {

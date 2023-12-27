@@ -3,7 +3,7 @@
 namespace Amp\Cluster\Internal;
 
 use Amp\Cluster\Cluster;
-use Amp\Cluster\Watcher;
+use Amp\Cluster\ClusterWatcher;
 use Amp\Future;
 use Amp\Parallel\Ipc;
 use Amp\Socket\ResourceSocket;
@@ -38,7 +38,7 @@ return static function (Channel $channel) use ($argc, $argv): void {
         // Read random IPC hub URI and associated key from process channel.
         ['id' => $id, 'uri' => $uri, 'key' => $key] = $channel->receive();
 
-        $transferSocket = Ipc\connect($uri, $key, new TimeoutCancellation(Watcher::WORKER_TIMEOUT));
+        $transferSocket = Ipc\connect($uri, $key, new TimeoutCancellation(ClusterWatcher::WORKER_TIMEOUT));
     } catch (\Throwable $exception) {
         throw new \RuntimeException("Could not connect to IPC socket", 0, $exception);
     }

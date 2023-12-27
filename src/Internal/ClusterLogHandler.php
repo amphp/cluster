@@ -34,6 +34,6 @@ final class ClusterLogHandler extends AbstractProcessingHandler
      */
     protected function write(array|LogRecord $record): void
     {
-        $this->channel->send(new ClusterMessage(ClusterMessageType::Log, $record));
+        $this->channel->send(new WorkerMessage(WorkerMessageType::Log, $record));
     }
 }

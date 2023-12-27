@@ -3,10 +3,10 @@
 namespace Amp\Cluster\Internal;
 
 /** @internal */
-final class ClusterMessage
+final class WatcherMessage
 {
     public function __construct(
-        public readonly ClusterMessageType $type,
+        public readonly WatcherMessageType $type,
         public readonly mixed $data,
     ) {
     }
