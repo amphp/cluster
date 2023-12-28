@@ -204,7 +204,7 @@ final class ClusterWatcher
             $deferredCancellation,
             $id,
         ): void {
-            $futures = [$this->provider->provideFor($socket)];
+            async($this->provider->provideFor(...), $socket, $deferredCancellation->getCancellation())->ignore();
 
             try {
                 try {
@@ -228,9 +228,6 @@ final class ClusterWatcher
                     unset($this->workers[$id], $this->workerFutures[$id]);
                     $context->close();
                 }
-
-                // Wait for the STDIO streams to be consumed and closed.
-                Future\await($futures);
 
                 if ($this->running) {
                     $this->workers[$id] = $this->startWorker($this->nextId++);

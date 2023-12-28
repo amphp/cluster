@@ -7,11 +7,9 @@ use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
 use Amp\ByteStream\WritableBuffer;
 use Amp\Cancellation;
-use Amp\CancelledException;
 use Amp\Cluster\Internal\StreamResourceSendPipe;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
-use Amp\Future;
 use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\Serializer;
 use Amp\Socket\BindContext;
@@ -20,7 +18,6 @@ use Amp\Socket\SocketException;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use const Amp\Process\IS_WINDOWS;
-use function Amp\async;
 
 final class ServerSocketPipeProvider
 {
@@ -43,44 +40,38 @@ final class ServerSocketPipeProvider
     }
 
     /**
-     * @return Future<void>
-     *
      * @throws SocketException
      */
-    public function provideFor(ReadableStream&ResourceStream $stream, ?Cancellation $cancellation = null): Future
+    public function provideFor(ReadableStream&ResourceStream $stream, ?Cancellation $cancellation = null): void
     {
         /** @var Channel<SocketAddress|null, never> $channel */
         $channel = new StreamChannel($stream, new WritableBuffer(), $this->serializer);
         /** @var StreamResourceSendPipe<SocketAddress> $pipe */
         $pipe = new StreamResourceSendPipe($stream, $this->serializer);
 
-        $servers = &$this->servers;
-        $bindContext = $this->bindContext;
-        return async(static function () use (&$servers, $channel, $pipe, $bindContext, $cancellation): void {
-            try {
-                while ($address = $channel->receive($cancellation)) {
-                    /** @psalm-suppress DocblockTypeContradiction Extra manual check to enforce docblock types. */
-                    if (!$address instanceof SocketAddress) {
-                        throw new \ValueError(\sprintf(
+        try {
+            while ($address = $channel->receive($cancellation)) {
+                /** @psalm-suppress DocblockTypeContradiction Extra manual check to enforce docblock types. */
+                if (!$address instanceof SocketAddress) {
+                    throw new \ValueError(
+                        \sprintf(
                             'Expected only instances of %s on channel; do not use the given socket outside %s',
                             SocketAddress::class,
                             self::class,
-                        ));
-                    }
-
-                    $uri = (string) $address;
-                    $server = $servers[$uri] ??= self::bind($uri, $bindContext);
-
-                    $pipe->send($server, $address);
+                        )
+                    );
                 }
-            } catch (CancelledException) {
-                // Providing cancelled by $cancellation.
-            } catch (ChannelException) {
-                // Sending context closed the channel abruptly.
-            } finally {
-                $pipe->close();
+
+                $uri = (string) $address;
+                $server = $this->servers[$uri] ??= self::bind($uri, $this->bindContext);
+
+                $pipe->send($server, $address);
             }
-        });
+        } catch (ChannelException $exception) {
+            throw new SocketException('Provider channel closed: ' . $exception->getMessage(), previous: $exception);
+        } finally {
+            $pipe->close();
+        }
     }
 
     /**

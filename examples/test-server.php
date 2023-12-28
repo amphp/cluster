@@ -31,7 +31,7 @@ for ($i = 0; $i < 2; ++$i) {
     $socket = $ipcHub->accept($key);
 
     echo "Providing servers for process\n";
-    $provider->provideFor($socket);
+    async($provider->provideFor(...), $socket);
 
     $processes[] = $process;
 }
