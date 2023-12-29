@@ -7,34 +7,29 @@ use Amp\Parallel\Ipc;
 use Amp\SignalCancellation;
 use Amp\Socket\InternetAddress;
 use Amp\Socket\ResourceSocket;
-use Amp\Socket\SocketAddress;
 use Amp\Sync\Channel;
 
-/**
- * @param Channel<string, SocketAddress> $channel
- */
 return function (Channel $channel): void {
     $pid = getmypid();
 
     printf("Child started: %d\n", $pid);
 
-    $uri = $channel->receive();
-    $key = $channel->receive();
+    ['uri' => $uri, 'key' => $key] = $channel->receive();
 
-    printf("Received %s from %s\n", base64_encode($key), $uri);
+    printf("Received %s for %s\n", base64_encode($key), $uri);
 
     $socket = Ipc\connect($uri, $key);
     if (!$socket instanceof ResourceSocket) {
         throw new \TypeError("Expected instance of " . ResourceStream::class);
     }
 
-    $clusterServerFactory = new ServerSocketPipeFactory($socket);
+    $serverFactory = new ServerSocketPipeFactory($socket);
 
-    $server = $clusterServerFactory->listen(new InternetAddress('127.0.0.1', 9337));
+    $server = $serverFactory->listen(new InternetAddress('127.0.0.1', 9337));
 
-    echo $server->getAddress()->toString(), PHP_EOL;
+    printf("Listening for connections on %s in PID %d\n", $server->getAddress()->toString(), $pid);
 
-    $cancellation = new SignalCancellation([\SIGTERM, SIGINT, SIGHUP]);
+    $cancellation = new SignalCancellation([SIGTERM, SIGINT, SIGHUP]);
 
     try {
         while ($client = $server->accept($cancellation)) {

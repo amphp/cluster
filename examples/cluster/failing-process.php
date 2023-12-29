@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-require dirname(__DIR__) . "/vendor/autoload.php";
+require dirname(__DIR__, 2) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
@@ -9,11 +9,11 @@ use Amp\Log\StreamHandler;
 use Monolog\Logger;
 use Revolt\EventLoop;
 
-// Run using bin/cluster -w 1 examples/failing-process.php
+// Run using bin/cluster -w 1 examples/cluster/failing-process.php
 // The single cluster worker started will fail in 1 to 5 seconds and automatically restart
 // until the main process is terminated.
 
-$id = Cluster::getContextId();
+$id = Cluster::getContextId() ?? getmypid();
 
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {

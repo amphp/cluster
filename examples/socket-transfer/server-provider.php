@@ -6,7 +6,7 @@ use Amp\Parallel\Ipc\LocalIpcHub;
 use function Amp\async;
 use function Amp\trapSignal;
 
-require dirname(__DIR__) . "/vendor/autoload.php";
+require dirname(__DIR__, 2) . "/vendor/autoload.php";
 
 $ipcHub = new LocalIpcHub();
 
@@ -17,15 +17,14 @@ $processes = [];
 
 for ($i = 0; $i < 2; ++$i) {
     echo "Starting process\n";
-    $process = ProcessContext::start($ipcHub, __DIR__ . '/test-client.php');
+    $process = ProcessContext::start($ipcHub, __DIR__ . '/children/server-consumer.php');
 
-    echo "Piping output of process\n";
+    printf("Piping output of process %d\n", $process->getPid());
     async(Amp\ByteStream\pipe(...), $process->getStdout(), Amp\ByteStream\getStdout())->ignore();
 
     $key = $ipcHub->generateKey();
 
-    $process->send($ipcHub->getUri());
-    $process->send($key);
+    $process->send(['uri' => $ipcHub->getUri(), 'key' => $key]);
 
     echo "Accepting client\n";
     $socket = $ipcHub->accept($key);
@@ -36,7 +35,7 @@ for ($i = 0; $i < 2; ++$i) {
     $processes[] = $process;
 }
 
-echo "Trapping signal\n";
+echo "Trapping signal to await process termination\n";
 trapSignal(\SIGTERM);
 
 $ipcHub->close();

@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-require dirname(__DIR__) . "/vendor/autoload.php";
+require dirname(__DIR__, 2) . "/vendor/autoload.php";
 
 // This example requires amphp/http-server to be installed.
 
@@ -17,7 +17,7 @@ use Amp\Log\StreamHandler;
 use Amp\Socket\InternetAddress;
 use Monolog\Logger;
 
-// Run using bin/cluster examples/simple-http-server.php
+// Run using bin/cluster examples/cluster/simple-http-server.php
 // Test using your browser by connecting to http://localhost:8080/
 
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
@@ -28,7 +28,7 @@ if (Cluster::isWorker()) {
     $handler->setFormatter(new ConsoleFormatter);
 }
 
-$logger = new Logger('worker-' . Cluster::getContextId());
+$logger = new Logger('worker-' . (Cluster::getContextId() ?? getmypid()));
 $logger->pushHandler($handler);
 $logger->useLoggingLoopDetection(false);
 
