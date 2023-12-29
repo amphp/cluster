@@ -42,11 +42,12 @@ final class Cluster implements Channel
     }
 
     /**
-     * @return int<0, max> Returns the context ID of the execution context or 0 if running as an independent script.
+     * @return positive-int|null Returns the context ID of the execution context or null if running as an
+     *      independent script.
      */
-    public static function getContextId(): int
+    public static function getContextId(): ?int
     {
-        return self::$cluster?->contextId ?? 0;
+        return self::$cluster?->contextId;
     }
 
     public static function getServerSocketFactory(): ServerSocketFactory
@@ -144,7 +145,7 @@ final class Cluster implements Channel
     private readonly DeferredCancellation $loopCancellation;
 
     /**
-     * @param int<0, max> $contextId
+     * @param positive-int $contextId
      * @param Channel<WatcherMessage, WorkerMessage> $ipcChannel
      */
     private function __construct(
