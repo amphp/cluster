@@ -64,6 +64,8 @@ final class StreamResourceSendPipe implements Closable
                             $transferQueue->unshift([$suspension, $export, $data]);
                             return;
                         }
+
+                        $suspension->resume();
                     } catch (\Throwable $exception) {
                         $suspension->resume(static fn () => throw new SocketException(
                             'Failed to send socket: ' . $exception->getMessage(),
