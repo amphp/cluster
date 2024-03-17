@@ -24,7 +24,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testDoubleStart(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('The cluster watcher is already running or has already run');
@@ -39,7 +39,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testInvalidWorkerCount(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('The number of workers must be greater than zero');
@@ -53,7 +53,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testReceivingMessage(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
         $invoked = false;
         $future = async(function () use (&$invoked, $watcher): void {
@@ -76,7 +76,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testRestart(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger);
 
         $invoked = 0;
         $future = async(function () use (&$invoked, $watcher): void {
@@ -103,7 +103,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testGracefulSelfTermination(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-graceful-self-terminate.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-graceful-self-terminate.php', $this->logger);
 
         $invoked = 0;
         $future = async(function () use (&$invoked, $watcher): void {
@@ -125,7 +125,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testGracefulWatcherTermination(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-graceful-terminate-worker.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-graceful-terminate-worker.php', $this->logger);
 
         $received = 0;
 

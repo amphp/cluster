@@ -14,7 +14,6 @@ use Amp\Future;
 use Amp\Parallel\Context\ContextException;
 use Amp\Parallel\Context\ContextFactory;
 use Amp\Parallel\Context\DefaultContextFactory;
-use Amp\Parallel\Ipc\IpcHub;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\Pipeline\ConcurrentIterator;
 use Amp\Pipeline\Queue;
@@ -64,12 +63,11 @@ final class ClusterWatcher
 
     /**
      * @param string|array<string> $script Script path and optional arguments.
-     * @param IpcHub $hub Sockets returned from {@see IpcHub::accept()} must be an instance of {@see ResourceSocket}.
      */
     public function __construct(
         string|array $script,
         PsrLogger $logger,
-        private readonly IpcHub $hub = new LocalIpcHub(),
+        private readonly ClusterHub $hub = new ClusterHubDelegate(new LocalIpcHub()),
         ?ContextFactory $contextFactory = null,
         private readonly ServerSocketPipeProvider $provider = new ServerSocketPipeProvider(),
     ) {
@@ -168,15 +166,6 @@ final class ClusterWatcher
             }
 
             throw new ClusterException("Starting the cluster worker failed", previous: $exception);
-        }
-
-        if (!$socket instanceof ResourceSocket) {
-            throw new \TypeError(\sprintf(
-                "The %s instance returned from %s::accept() must also implement %s",
-                Socket::class,
-                \get_class($this->hub),
-                ResourceStream::class,
-            ));
         }
 
         $deferredCancellation = new DeferredCancellation();
