@@ -90,7 +90,7 @@ final class TransferSocket implements Closable
         \socket_clear_error();
 
         try {
-            if (!\socket_recvmsg($this->socket, $data, \MSG_DONTWAIT)) {
+            if (\socket_recvmsg($this->socket, $data, \MSG_DONTWAIT) === false) {
                 /* Purposely omitting $this->socket from socket_last_error(),
                  * as the error will not be socket-specific. */
                 $errorCode = \socket_last_error();
@@ -141,12 +141,12 @@ final class TransferSocket implements Closable
         \socket_clear_error($this->socket);
 
         try {
-            if (!\socket_sendmsg($this->socket, [
+            if (\socket_sendmsg($this->socket, [
                 "iov" => [$data],
                 "control" => [
                     ["level" => \SOL_SOCKET, "type" => \SCM_RIGHTS, "data" => [$stream]],
                 ],
-            ], \MSG_DONTWAIT)) {
+            ], \MSG_DONTWAIT) === false) {
                 $errorCode = \socket_last_error($this->socket);
                 if ($errorCode === \SOCKET_EAGAIN) {
                     // Socket buffer full, try again later.

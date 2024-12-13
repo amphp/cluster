@@ -148,6 +148,9 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         }
     }
 
+    /**
+     * @psalm-suppress MissingParamType Type missing for compatibility with old versions of psr/log.
+     */
     public function log($level, $message, array $context = []): void
     {
         $context['id'] = $this->id;
