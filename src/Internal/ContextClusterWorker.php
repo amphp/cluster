@@ -109,7 +109,13 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
                 };
             }
 
-            $this->joinFuture->await(new TimeoutCancellation(ClusterWatcher::WORKER_TIMEOUT));
+            try {
+                $this->joinFuture->await(new TimeoutCancellation(ClusterWatcher::WORKER_TIMEOUT));
+            } catch (CancelledException) {
+                $this->close();
+                // Give it a second to reap the result. Generally this never should time out, unless something is seriously broken.
+                $this->joinFuture->await(new TimeoutCancellation(1));
+            }
         } catch (\Throwable $exception) {
             $this->joinFuture->ignore();
             throw $exception;
