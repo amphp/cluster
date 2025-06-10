@@ -62,7 +62,10 @@ final class ServerSocketPipeProvider
                     );
                 }
 
-                $uri = (string) $address;
+                $uri = match ($address->getType()) {
+                    SocketAddressType::Internet => 'tcp://' . $address->toString(),
+                    SocketAddressType::Unix => 'unix://' . $address->toString(),
+                };
                 $server = $this->servers[$uri] ??= self::bind($uri, $this->bindContext);
 
                 $pipe->send($server, $address);
