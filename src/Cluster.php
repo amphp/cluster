@@ -159,7 +159,7 @@ final class Cluster
      *
      * @return Promise Resolved when the IPC client has terminated.
      */
-    private static function run(Channel $channel, Socket\ResourceSocket $socket = null): Promise
+    private static function run(Channel $channel, ?Socket\ResourceSocket $socket = null): Promise
     {
         self::$onClose = [];
 

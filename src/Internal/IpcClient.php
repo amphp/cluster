@@ -30,7 +30,7 @@ final class IpcClient
     /** @var \SplQueue */
     private $pendingResponses;
 
-    public function __construct(callable $onData, Channel $channel, ResourceSocket $socket = null)
+    public function __construct(callable $onData, Channel $channel, ?ResourceSocket $socket = null)
     {
         $this->channel = $channel;
         $this->onData = $onData;

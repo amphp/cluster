@@ -36,7 +36,7 @@ final class IpcParent
     /** @var int */
     private $lastActivity;
 
-    public function __construct(Context $context, Logger $logger, callable $bind, callable $onData, Socket $socket = null)
+    public function __construct(Context $context, Logger $logger, callable $bind, callable $onData, ?Socket $socket = null)
     {
         \assert($context->isRunning(), "The context must already be running");
 
