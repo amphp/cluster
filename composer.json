@@ -37,7 +37,7 @@
         "amphp/socket": "^1",
         "league/climate": "^3",
         "monolog/monolog": "^2 || ^1.23",
-        "psr/log": "^1"
+        "psr/log": "^1 || ^2 || ^3"
     },
     "require-dev": {
         "amphp/file": "^2",
