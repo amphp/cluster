@@ -65,6 +65,11 @@ final class ClusterWatcher
     /**
      * @param string|array<string> $script Script path and optional arguments.
      * @param IpcHub $hub Sockets returned from {@see IpcHub::accept()} must be an instance of {@see ResourceSocket}.
+     * @param positive-int $workerPingTimeout Seconds without activity before
+     *     the watcher considers a worker dead and terminates it. Default
+     *     {@see Internal\ContextClusterWorker::DEFAULT_PING_TIMEOUT}. Increase
+     *     for applications that legitimately do synchronous blocking work
+     *     (e.g. PDO drivers) longer than the default ceiling.
      */
     public function __construct(
         string|array $script,
@@ -72,9 +77,16 @@ final class ClusterWatcher
         private readonly IpcHub $hub = new LocalIpcHub(),
         ?ContextFactory $contextFactory = null,
         private readonly ServerSocketPipeProvider $provider = new ServerSocketPipeProvider(),
+        private readonly int $workerPingTimeout = ContextClusterWorker::DEFAULT_PING_TIMEOUT,
     ) {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
+        }
+
+        if ($workerPingTimeout < 1) {
+            throw new \ValueError(
+                'Worker ping timeout must be a positive integer (seconds); got ' . $workerPingTimeout,
+            );
         }
 
         $this->script = \array_merge(
@@ -187,6 +199,7 @@ final class ClusterWatcher
             $this->queue,
             $deferredCancellation,
             $this->logger,
+            $this->workerPingTimeout,
         );
 
         $worker->info(\sprintf('Started cluster worker with ID %d', $id));

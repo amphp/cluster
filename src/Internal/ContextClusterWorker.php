@@ -37,7 +37,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     use ForbidCloning;
     use ForbidSerialization;
 
-    private const PING_TIMEOUT = 10;
+    public const DEFAULT_PING_TIMEOUT = 10;
 
     private int $lastActivity;
 
@@ -47,6 +47,9 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
      * @param positive-int $id
      * @param Context<mixed, WorkerMessage|null, WatcherMessage|null> $context
      * @param Queue<ClusterWorkerMessage<TReceive, TSend>> $queue
+     * @param positive-int $pingTimeout Seconds without activity before the
+     *     watcher considers the worker dead and terminates it. Must be
+     *     positive; the timer fires every $pingTimeout / 2 seconds.
      */
     public function __construct(
         private readonly int $id,
@@ -55,6 +58,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         private readonly Queue $queue,
         private readonly DeferredCancellation $deferredCancellation,
         private readonly Logger $logger,
+        private readonly int $pingTimeout = self::DEFAULT_PING_TIMEOUT,
     ) {
         $this->lastActivity = \time();
         $this->joinFuture = async($this->context->join(...));
@@ -72,8 +76,8 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
 
     public function run(): void
     {
-        $watcher = EventLoop::repeat(self::PING_TIMEOUT / 2, weakClosure(function (): void {
-            if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
+        $watcher = EventLoop::repeat($this->pingTimeout / 2, weakClosure(function (): void {
+            if ($this->lastActivity < \time() - $this->pingTimeout) {
                 $this->close();
                 return;
             }
