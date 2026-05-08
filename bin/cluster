@@ -9,6 +9,7 @@ use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
 use Amp\TimeoutCancellation;
 use League\CLImate\Argument\Manager as CliArgumentManager;
+use Monolog\Formatter\JsonFormatter;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Logger;
 use Psr\Log\LogLevel;
@@ -30,6 +31,8 @@ const HELP = <<<EOT
     -l, --log                Set the minimum log output level (default: debug)
     -f, --file               Log to file path instead of STDOUT (requires amphp/file)
                              Asterisks (*) in path will be replaced with cluster PID
+        --format             Log output format: console, line, or json (default: console
+                             when logging to STDOUT, line when --file is set)
     -n, --name               Cluster process name
     -p, --pid-file           File path to write current PID to
     -t, --shutdown-timeout   Shutdown timeout in seconds
@@ -84,6 +87,10 @@ $args = [
         "prefix" => "f",
         "longPrefix" => "file",
         "description" => "Log file path. Log messages are written to STDOUT if not specified.",
+    ],
+    "format" => [
+        "longPrefix" => "format",
+        "description" => "Log output format: console, line, or json. Defaults to console when logging to STDOUT and line when --file is set.",
     ],
     "workers" => [
         "prefix" => "w",
@@ -178,21 +185,32 @@ if ($arguments->defined("pid-file")) {
 
 $level = $arguments->get("log");
 
-if ($arguments->defined("file", $argv)) {
+$loggingToFile = $arguments->defined("file", $argv);
+
+if ($loggingToFile) {
     if (!interface_exists(File\File::class)) {
         throw new Exception("amphp/file must be installed to log to a file");
     }
 
     $path = str_replace('*', getmypid(), $arguments->get("file"));
-
     $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
-    $formatter = new LineFormatter;
 } else {
     $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
-    $formatter = new ConsoleFormatter;
 }
 
-$formatter->allowInlineLineBreaks(true);
+$format = $arguments->get("format") ?? ($loggingToFile ? "line" : "console");
+
+$formatter = match ($format) {
+    "console" => new ConsoleFormatter,
+    "line" => new LineFormatter,
+    "json" => new JsonFormatter,
+    default => throw new Exception("Invalid --format value '{$format}'. Valid: console, line, json"),
+};
+
+if ($formatter instanceof LineFormatter) {
+    $formatter->allowInlineLineBreaks(true);
+}
+
 $logHandler->setFormatter($formatter);
 
 $logger = new Logger("cluster-" . getmypid());
