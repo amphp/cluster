@@ -2,6 +2,9 @@
 
 namespace Amp\Cluster;
 
+/**
+ * @psalm-suppress ClassMustBeFinal
+ */
 class ClusterException extends \Exception
 {
 }

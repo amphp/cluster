@@ -158,6 +158,7 @@ final class Cluster implements Channel
         $this->loopCancellation = new DeferredCancellation();
     }
 
+    #[\Override]
     public function receive(?Cancellation $cancellation = null): mixed
     {
         if (!$this->iterator->continue($cancellation)) {
@@ -170,22 +171,26 @@ final class Cluster implements Channel
         return $this->iterator->getValue();
     }
 
+    #[\Override]
     public function send(mixed $data): void
     {
         $this->ipcChannel->send(new WorkerMessage(WorkerMessageType::Data, $data));
     }
 
+    #[\Override]
     public function close(): void
     {
         // Don't close the ipcChannel directly here, that's the task of the process-runner
         $this->loopCancellation->cancel();
     }
 
+    #[\Override]
     public function isClosed(): bool
     {
         return $this->loopCancellation->isCancelled();
     }
 
+    #[\Override]
     public function onClose(\Closure $onClose): void
     {
         $this->loopCancellation->getCancellation()->subscribe(static fn () => $onClose());

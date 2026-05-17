@@ -11,6 +11,9 @@ use Amp\Sync\Channel;
 
 return function (Channel $channel): void {
     $pid = getmypid();
+    if ($pid === false) {
+        throw new \RuntimeException("Failed to get PID");
+    }
 
     printf("Child started: %d\n", $pid);
 

@@ -60,11 +60,13 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         $this->joinFuture = async($this->context->join(...));
     }
 
+    #[\Override]
     public function getId(): int
     {
         return $this->id;
     }
 
+    #[\Override]
     public function send(mixed $data): void
     {
         $this->context->send(new WatcherMessage(WatcherMessageType::Data, $data));
@@ -157,6 +159,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     /**
      * @psalm-suppress MissingParamType Type missing for compatibility with old versions of psr/log.
      */
+    #[\Override]
     public function log($level, $message, array $context = []): void
     {
         $context['id'] = $this->id;

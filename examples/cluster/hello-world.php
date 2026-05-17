@@ -17,7 +17,7 @@ $socketFactory = Cluster::getServerSocketFactory();
 
 $server = $socketFactory->listen(new InternetAddress("127.0.0.1", 1337));
 
-$id = Cluster::getContextId() ?? getmypid();
+$id = (int) (Cluster::getContextId() ?? getmypid());
 
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {

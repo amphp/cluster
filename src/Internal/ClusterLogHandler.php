@@ -32,6 +32,7 @@ final class ClusterLogHandler extends AbstractProcessingHandler
     /**
      * @param array|LogRecord $record Array for Monolog v1.x or 2.x and {@see LogRecord} for v3.x.
      */
+    #[\Override]
     protected function write(array|LogRecord $record): void
     {
         $this->channel->send(new WorkerMessage(WorkerMessageType::Log, $record));
