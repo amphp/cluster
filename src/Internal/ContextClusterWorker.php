@@ -4,7 +4,6 @@ namespace Amp\Cluster\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\Cluster\ClusterWatcher;
 use Amp\Cluster\ClusterWorker;
 use Amp\Cluster\ClusterWorkerMessage;
 use Amp\DeferredCancellation;
@@ -64,17 +63,25 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         $this->joinFuture = async($this->context->join(...));
     }
 
+    #[\Override]
     public function getId(): int
     {
         return $this->id;
     }
 
+    #[\Override]
     public function send(mixed $data): void
     {
         $this->context->send(new WatcherMessage(WatcherMessageType::Data, $data));
     }
 
-    public function run(): void
+    /**
+     * Run the worker.
+     *
+     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
+     *    or null to wait indefinitely.
+     */
+    public function run(?float $shutdownTimeout): void
     {
         $watcher = EventLoop::repeat($this->pingTimeout / 2, weakClosure(function (): void {
             if ($this->lastActivity < \time() - $this->pingTimeout) {
@@ -114,10 +121,15 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
             }
 
             try {
-                $this->joinFuture->await(new TimeoutCancellation(ClusterWatcher::WORKER_TIMEOUT));
+                if ($shutdownTimeout === null) {
+                    $this->joinFuture->await();
+                } else {
+                    $this->joinFuture->await(new TimeoutCancellation($shutdownTimeout));
+                }
             } catch (CancelledException) {
                 $this->close();
-                // Give it a second to reap the result. Generally this never should time out, unless something is seriously broken.
+                // Give it a second to reap the result. Generally this never should time out, unless something is
+                // seriously broken.
                 $this->joinFuture->await(new TimeoutCancellation(1));
             }
         } catch (\Throwable $exception) {
@@ -161,6 +173,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     /**
      * @psalm-suppress MissingParamType Type missing for compatibility with old versions of psr/log.
      */
+    #[\Override]
     public function log($level, $message, array $context = []): void
     {
         $context['id'] = $this->id;

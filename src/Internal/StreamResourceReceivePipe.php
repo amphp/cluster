@@ -85,16 +85,19 @@ final class StreamResourceReceivePipe implements Closable
         });
     }
 
+    #[\Override]
     public function close(): void
     {
         $this->transferSocket->close();
     }
 
+    #[\Override]
     public function isClosed(): bool
     {
         return $this->transferSocket->isClosed();
     }
 
+    #[\Override]
     public function onClose(\Closure $onClose): void
     {
         $this->transferSocket->onClose($onClose);
@@ -139,7 +142,6 @@ final class StreamResourceReceivePipe implements Closable
 
         \assert(!$this->receiveQueue->isEmpty(), 'Queue of received sockets was empty after suspending!');
 
-        /** @var TransferredResource<string> $transferred */
         $transferred = $this->receiveQueue->shift();
 
         return new TransferredResource(

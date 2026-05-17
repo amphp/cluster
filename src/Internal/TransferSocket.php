@@ -57,6 +57,7 @@ final class TransferSocket implements Closable
         $this->close();
     }
 
+    #[\Override]
     public function close(): void
     {
         if (!$this->onClose->isComplete()) {
@@ -64,11 +65,13 @@ final class TransferSocket implements Closable
         }
     }
 
+    #[\Override]
     public function isClosed(): bool
     {
         return $this->onClose->isComplete();
     }
 
+    #[\Override]
     public function onClose(\Closure $onClose): void
     {
         $this->onClose->getFuture()->finally($onClose);
