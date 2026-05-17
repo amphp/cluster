@@ -81,8 +81,12 @@ final class ServerSocketPipeFactory implements ServerSocketFactory
         \socket_listen($socket, $context["socket"]["backlog"] ?? 0);
 
         $stream = \socket_export_stream($socket);
+        if (!$stream) {
+            throw new SocketException('Failed to export stream from socket');
+        }
+
         if (PHP_VERSION_ID >= 80300) {
-            /** @psalm-suppress UndefinedFunction */
+            /** @psalm-suppress UndefinedFunction, UnusedFunctionCall */
             \stream_context_set_options($stream, $context);
         } else {
             \stream_context_set_option($stream, $context);

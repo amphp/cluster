@@ -54,8 +54,8 @@ return static function (Channel $channel) use ($argc, $argv): void {
             async((static fn () => Cluster::run($id, $channel, $transferSocket))->bindTo(null, Cluster::class)
                 ?: throw new \RuntimeException('Unable to bind closure')),
 
-            /* Protect current scope by requiring script within another function.
-             * Using $argc so it is available to the required script. */
+            // Protect current scope by requiring script within another function.
+            // Using $argc so it is available to the required script.
             async(static function () use ($argc, $argv): void {
                 require $argv[0];
             }),

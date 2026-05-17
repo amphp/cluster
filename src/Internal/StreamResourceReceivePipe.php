@@ -142,7 +142,6 @@ final class StreamResourceReceivePipe implements Closable
 
         \assert(!$this->receiveQueue->isEmpty(), 'Queue of received sockets was empty after suspending!');
 
-        /** @var TransferredResource<string> $transferred */
         $transferred = $this->receiveQueue->shift();
 
         return new TransferredResource(
