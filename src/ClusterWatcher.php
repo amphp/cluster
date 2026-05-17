@@ -155,7 +155,7 @@ final class ClusterWatcher
      * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
      *  or null to wait indefinitely.
      */
-    private function startWorker(int $id, ?float $shutdownTimeout = ClusterWatcher::WORKER_TIMEOUT): ContextClusterWorker
+    private function startWorker(int $id, ?float $shutdownTimeout): ContextClusterWorker
     {
         $context = $this->contextFactory->start($this->script);
 
@@ -238,7 +238,7 @@ final class ClusterWatcher
                 }
 
                 if ($this->running) {
-                    $this->workers[$id] = $this->startWorker($this->nextId++);
+                    $this->workers[$id] = $this->startWorker($this->nextId++, $shutdownTimeout);
                 }
             } catch (\Throwable $exception) {
                 $this->stop();
