@@ -28,7 +28,7 @@ if (Cluster::isWorker()) {
     $handler->setFormatter(new ConsoleFormatter);
 }
 
-$logger = new Logger('worker-' . (Cluster::getContextId() ?? getmypid()));
+$logger = new Logger('worker-' . (string) (Cluster::getContextId() ?? getmypid()));
 $logger->pushHandler($handler);
 $logger->useLoggingLoopDetection(false);
 

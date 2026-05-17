@@ -1,42 +1,60 @@
 <?xml version="1.0"?>
 <psalm
-    errorLevel="2"
-    resolveFromConfigFile="true"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xmlns="https://getpsalm.org/schema/config"
-    xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
+        errorLevel="2"
+        resolveFromConfigFile="true"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="https://getpsalm.org/schema/config"
+        xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
 >
     <projectFiles>
-        <directory name="examples" />
-        <directory name="src" />
+        <directory name="examples"/>
+        <directory name="src"/>
         <ignoreFiles>
-            <directory name="vendor" />
+            <directory name="vendor"/>
         </ignoreFiles>
     </projectFiles>
 
     <issueHandlers>
-        <MissingClosureReturnType>
-            <errorLevel type="suppress">
-                <directory name="src" />
-            </errorLevel>
-        </MissingClosureReturnType>
-
         <InaccessibleMethod>
             <errorLevel type="suppress">
-                <file name="src/Internal/cluster-runner.php" />
+                <file name="src/Internal/cluster-runner.php"/>
             </errorLevel>
         </InaccessibleMethod>
 
+        <MissingClosureReturnType>
+            <errorLevel type="suppress">
+                <directory name="src"/>
+            </errorLevel>
+        </MissingClosureReturnType>
+
+        <PossiblyUnusedMethod>
+            <errorLevel type="suppress">
+                <directory name="src"/>
+            </errorLevel>
+        </PossiblyUnusedMethod>
+
         <UnresolvableInclude>
             <errorLevel type="suppress">
-                <file name="src/Internal/cluster-runner.php" />
+                <file name="src/Internal/cluster-runner.php"/>
             </errorLevel>
         </UnresolvableInclude>
 
         <UnsupportedPropertyReferenceUsage>
             <errorLevel type="suppress">
-                <directory name="src" />
+                <directory name="src"/>
             </errorLevel>
         </UnsupportedPropertyReferenceUsage>
+
+        <UnusedClass>
+            <errorLevel type="suppress">
+                <directory name="src"/>
+            </errorLevel>
+        </UnusedClass>
+
+        <UnusedVariable>
+            <errorLevel type="suppress">
+                <file name="src/Internal/cluster-runner.php"/>
+            </errorLevel>
+        </UnusedVariable>
     </issueHandlers>
 </psalm>

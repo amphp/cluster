@@ -52,16 +52,19 @@ final class ClientSocketReceivePipe implements Closable
         );
     }
 
+    #[\Override]
     public function close(): void
     {
         $this->receive->close();
     }
 
+    #[\Override]
     public function isClosed(): bool
     {
         return $this->receive->isClosed();
     }
 
+    #[\Override]
     public function onClose(\Closure $onClose): void
     {
         $this->receive->onClose($onClose);

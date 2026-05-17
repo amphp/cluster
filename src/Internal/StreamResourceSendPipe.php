@@ -91,16 +91,19 @@ final class StreamResourceSendPipe implements Closable
         });
     }
 
+    #[\Override]
     public function close(): void
     {
         $this->transferSocket->close();
     }
 
+    #[\Override]
     public function isClosed(): bool
     {
         return $this->transferSocket->isClosed();
     }
 
+    #[\Override]
     public function onClose(\Closure $onClose): void
     {
         $this->transferSocket->onClose($onClose);

@@ -1,6 +1,7 @@
 {
     "symbol-whitelist": [
-        "canReusePort"
+        "canReusePort",
+        "stream_context_set_options"
     ],
     "php-core-extensions": [
         "Core",

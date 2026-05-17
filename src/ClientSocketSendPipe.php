@@ -46,16 +46,19 @@ final class ClientSocketSendPipe implements Closable
         $this->send->send($resource, $data);
     }
 
+    #[\Override]
     public function close(): void
     {
         $this->send->close();
     }
 
+    #[\Override]
     public function isClosed(): bool
     {
         return $this->send->isClosed();
     }
 
+    #[\Override]
     public function onClose(\Closure $onClose): void
     {
         $this->send->onClose($onClose);
