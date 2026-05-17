@@ -36,8 +36,6 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     use ForbidCloning;
     use ForbidSerialization;
 
-    public const DEFAULT_PING_TIMEOUT = 10;
-
     private int $lastActivity;
 
     private readonly Future $joinFuture;
@@ -46,9 +44,6 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
      * @param positive-int $id
      * @param Context<mixed, WorkerMessage|null, WatcherMessage|null> $context
      * @param Queue<ClusterWorkerMessage<TReceive, TSend>> $queue
-     * @param positive-int $pingTimeout Seconds without activity before the
-     *     watcher considers the worker dead and terminates it. Must be
-     *     positive; the timer fires every $pingTimeout / 2 seconds.
      */
     public function __construct(
         private readonly int $id,
@@ -57,7 +52,6 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         private readonly Queue $queue,
         private readonly DeferredCancellation $deferredCancellation,
         private readonly Logger $logger,
-        private readonly int $pingTimeout = self::DEFAULT_PING_TIMEOUT,
     ) {
         $this->lastActivity = \time();
         $this->joinFuture = async($this->context->join(...));
@@ -80,11 +74,13 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
      *
      * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
      *    or null to wait indefinitely.
+     * @param float $pingTimeout Seconds without activity before the watcher considers a worker dead
+     *    and terminates it.
      */
-    public function run(?float $shutdownTimeout): void
+    public function run(?float $shutdownTimeout, float $pingTimeout): void
     {
-        $watcher = EventLoop::repeat($this->pingTimeout / 2, weakClosure(function (): void {
-            if ($this->lastActivity < \time() - $this->pingTimeout) {
+        $watcher = EventLoop::repeat($pingTimeout / 2, weakClosure(function () use ($pingTimeout): void {
+            if ($this->lastActivity < \time() - $pingTimeout) {
                 $this->close();
                 return;
             }
