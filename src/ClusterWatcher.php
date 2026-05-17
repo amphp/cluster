@@ -123,10 +123,10 @@ final class ClusterWatcher
 
     /**
      * @param int $count Number of cluster workers to spawn.
-     * @param null|int|float $workerShutdownTimeout The maximum time to wait for a worker to shut down, in seconds,
+     * @param float|null $workerShutdownTimeout The maximum time to wait for a worker to shut down, in seconds,
      *  or null to wait indefinitely.
      */
-    public function start(int $count, null|int|float $workerShutdownTimeout = ClusterWatcher::WORKER_TIMEOUT): void
+    public function start(int $count, ?float $workerShutdownTimeout = ClusterWatcher::WORKER_TIMEOUT): void
     {
         if ($this->running || $this->queue->isComplete()) {
             throw new \Error("The cluster watcher is already running or has already run");
@@ -152,10 +152,10 @@ final class ClusterWatcher
 
     /**
      * @param positive-int $id The worker ID.
-     * @param null|int|float $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
+     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
      *  or null to wait indefinitely.
      */
-    private function startWorker(int $id, null|int|float $shutdownTimeout = ClusterWatcher::WORKER_TIMEOUT): ContextClusterWorker
+    private function startWorker(int $id, ?float $shutdownTimeout = ClusterWatcher::WORKER_TIMEOUT): ContextClusterWorker
     {
         $context = $this->contextFactory->start($this->script);
 
