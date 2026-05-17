@@ -10,6 +10,7 @@ use Amp\DeferredCancellation;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Future;
+use Amp\Interval;
 use Amp\Parallel\Context\Context;
 use Amp\Parallel\Context\ProcessContext;
 use Amp\Pipeline\Queue;
@@ -19,8 +20,8 @@ use Amp\TimeoutCancellation;
 use Monolog\Handler\HandlerInterface as MonologHandler;
 use Monolog\Logger;
 use Psr\Log\AbstractLogger;
-use Revolt\EventLoop;
 use function Amp\async;
+use function Amp\now;
 use function Amp\weakClosure;
 
 /**
@@ -36,9 +37,13 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     use ForbidCloning;
     use ForbidSerialization;
 
-    private const PING_TIMEOUT = 10;
+    private const PING_TIMEOUT = 10.0;
 
-    private int $lastActivity;
+    /** @var float Last time the worker sent a message. */
+    private float $lastActivity;
+
+    /** @var float Cached current time to avoid syscall on each message. */
+    private float $now;
 
     private readonly Future $joinFuture;
 
@@ -55,7 +60,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         private readonly DeferredCancellation $deferredCancellation,
         private readonly Logger $logger,
     ) {
-        $this->lastActivity = \time();
+        $this->lastActivity = $this->now = now();
         $this->joinFuture = async($this->context->join(...));
     }
 
@@ -79,9 +84,15 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
      */
     public function run(?float $shutdownTimeout): void
     {
-        $watcher = EventLoop::repeat(self::PING_TIMEOUT / 2, weakClosure(function (): void {
-            if ($this->lastActivity < \time() - self::PING_TIMEOUT) {
+        $interval = new Interval(1, weakClosure(function (): void {
+            $this->now = now();
+
+            if ($this->lastActivity < $this->now - self::PING_TIMEOUT) {
                 $this->close();
+                return;
+            }
+
+            if ($this->lastActivity >= $this->now - self::PING_TIMEOUT / 2.0) {
                 return;
             }
 
@@ -90,7 +101,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
             } catch (\Throwable) {
                 $this->close();
             }
-        }));
+        }), reference: false);
 
         $cancellation = $this->deferredCancellation->getCancellation();
 
@@ -99,9 +110,8 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
             // In that case, join it.
             /** @var WorkerMessage $message */
             while ($message = $this->context->receive($cancellation)) {
-                $this->lastActivity = \time();
+                $this->lastActivity = $this->now;
 
-                /** @psalm-suppress UnhandledMatchCondition False positive. */
                 match ($message->type) {
                     WorkerMessageType::Pong => null,
 
@@ -132,7 +142,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
             $this->joinFuture->ignore();
             throw $exception;
         } finally {
-            EventLoop::cancel($watcher);
+            $interval->disable();
             $this->close();
         }
     }

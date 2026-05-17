@@ -31,7 +31,7 @@
     "require": {
         "php": ">=8.1",
         "ext-sockets": "*",
-        "amphp/amp": "^3",
+        "amphp/amp": "^3.1",
         "amphp/byte-stream": "^2",
         "amphp/log": "^2",
         "amphp/parallel": "^2.2",
