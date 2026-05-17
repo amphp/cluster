@@ -14,6 +14,7 @@ use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\Serializer;
 use Amp\Socket\BindContext;
 use Amp\Socket\SocketAddress;
+use Amp\Socket\SocketAddressType;
 use Amp\Socket\SocketException;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
