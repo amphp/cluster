@@ -80,6 +80,11 @@ final class ClusterWatcher
     /**
      * @param string|array<string> $script Script path and optional arguments.
      * @param IpcHub $hub Sockets returned from {@see IpcHub::accept()} must be an instance of {@see ResourceSocket}.
+     * @param float|null $workerShutdownTimeout The maximum time to wait for a worker to shut down, in seconds,
+     *       or null to wait indefinitely.
+     * @param float $workerPingTimeout Seconds without activity before the watcher considers a worker dead
+     *       and terminates it. Default {@see self::DEFAULT_WORKER_PING_TIMEOUT}. Increase or applications that
+     *       legitimately do synchronous blocking work (e.g. PDO drivers) longer than the default ceiling.
      */
     public function __construct(
         string|array $script,
@@ -87,9 +92,25 @@ final class ClusterWatcher
         private readonly IpcHub $hub = new LocalIpcHub(),
         ?ContextFactory $contextFactory = null,
         private readonly ServerSocketPipeProvider $provider = new ServerSocketPipeProvider(),
+        private readonly ?float $workerShutdownTimeout = self::DEFAULT_WORKER_SHUTDOWN_TIMEOUT,
+        private readonly float $workerPingTimeout = self::DEFAULT_WORKER_PING_TIMEOUT,
     ) {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
+        }
+
+        if ($this->workerShutdownTimeout !== null && $this->workerShutdownTimeout <= 0) {
+            throw new \ValueError(\sprintf(
+                'Worker shutdown timeout must be NULL or greater than zero (seconds); got %.3f',
+                $this->workerShutdownTimeout,
+            ));
+        }
+
+        if ($this->workerPingTimeout <= 0) {
+            throw new \ValueError(\sprintf(
+                'Worker ping timeout must be greater than zero (seconds); got %.3f',
+                $this->workerPingTimeout,
+            ));
         }
 
         $this->script = \array_merge(
@@ -135,17 +156,9 @@ final class ClusterWatcher
 
     /**
      * @param int $count Number of cluster workers to spawn.
-     * @param float|null $workerShutdownTimeout The maximum time to wait for a worker to shut down, in seconds,
-     *      or null to wait indefinitely.
-     * @param float $workerPingTimeout Seconds without activity before the watcher considers a worker dead
-     *      and terminates it. Default {@see self::DEFAULT_WORKER_PING_TIMEOUT}. Increase or applications that
-     *      legitimately do synchronous blocking work (e.g. PDO drivers) longer than the default ceiling.
      */
-    public function start(
-        int $count,
-        ?float $workerShutdownTimeout = self::DEFAULT_WORKER_SHUTDOWN_TIMEOUT,
-        float $workerPingTimeout = self::DEFAULT_WORKER_PING_TIMEOUT,
-    ): void {
+    public function start(int $count): void
+    {
         if ($this->running || $this->queue->isComplete()) {
             throw new \Error("The cluster watcher is already running or has already run");
         }
@@ -154,27 +167,13 @@ final class ClusterWatcher
             throw new \ValueError("The number of workers must be greater than zero");
         }
 
-        if ($workerShutdownTimeout !== null && $workerShutdownTimeout <= 0) {
-            throw new \ValueError(\sprintf(
-                'Worker shutdown timeout must be NULL or greater than zero (seconds); got %.3f',
-                $workerShutdownTimeout,
-            ));
-        }
-
-        if ($workerPingTimeout <= 0) {
-            throw new \ValueError(\sprintf(
-                'Worker ping timeout must be greater than zero (seconds); got %.3f',
-                $workerPingTimeout,
-            ));
-        }
-
         $this->workers = [];
         $this->running = true;
 
         try {
             for ($i = 0; $i < $count; ++$i) {
                 $id = $this->nextId++;
-                $this->workers[$id] = $this->startWorker($id, $workerShutdownTimeout, $workerPingTimeout);
+                $this->workers[$id] = $this->startWorker($id);
             }
         } catch (\Throwable $exception) {
             $this->stop();
@@ -184,10 +183,8 @@ final class ClusterWatcher
 
     /**
      * @param positive-int $id The worker ID.
-     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
-     *  or null to wait indefinitely.
      */
-    private function startWorker(int $id, ?float $shutdownTimeout, float $pingTimeout): ContextClusterWorker
+    private function startWorker(int $id): ContextClusterWorker
     {
         $context = $this->contextFactory->start($this->script);
 
@@ -242,14 +239,12 @@ final class ClusterWatcher
             $socket,
             $deferredCancellation,
             $id,
-            $shutdownTimeout,
-            $pingTimeout,
         ): void {
             async($this->provider->provideFor(...), $socket, $deferredCancellation->getCancellation())->ignore();
 
             try {
                 try {
-                    $worker->run($shutdownTimeout, $pingTimeout);
+                    $worker->run($this->workerPingTimeout, $this->workerShutdownTimeout);
 
                     $worker->info("Worker {$id} terminated cleanly" .
                         ($this->running ? ", restarting..." : ""));
@@ -274,7 +269,7 @@ final class ClusterWatcher
                     unset($this->workers[$id]);
 
                     $id = $this->nextId++;
-                    $this->workers[$id] = $this->startWorker($id, $shutdownTimeout, $pingTimeout);
+                    $this->workers[$id] = $this->startWorker($id);
                 }
             } catch (\Throwable $exception) {
                 $this->stop();

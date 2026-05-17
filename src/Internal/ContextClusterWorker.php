@@ -77,12 +77,12 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     /**
      * Run the worker.
      *
-     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
-     *    or null to wait indefinitely.
      * @param float $pingTimeout Seconds without activity before the watcher considers a worker dead
+     *    or null to wait indefinitely.
+     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
      *    and terminates it.
      */
-    public function run(?float $shutdownTimeout, float $pingTimeout): void
+    public function run(float $pingTimeout, ?float $shutdownTimeout): void
     {
         $interval = new Interval(1, weakClosure(function () use ($pingTimeout): void {
             $this->now = now();
@@ -102,6 +102,8 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
                 $this->close();
             }
         }), reference: false);
+
+        $this->lastActivity = $this->now;
 
         $cancellation = $this->deferredCancellation->getCancellation();
 
