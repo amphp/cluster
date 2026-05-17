@@ -36,6 +36,9 @@ final class ClusterWatcher
     use ForbidCloning;
     use ForbidSerialization;
 
+    /**
+     * The default worker shutdown timeout in seconds.
+     */
     public const WORKER_TIMEOUT = 5;
 
     private readonly ContextFactory $contextFactory;
@@ -120,8 +123,10 @@ final class ClusterWatcher
 
     /**
      * @param int $count Number of cluster workers to spawn.
+     * @param float|null $workerShutdownTimeout The maximum time to wait for a worker to shut down, in seconds,
+     *  or null to wait indefinitely.
      */
-    public function start(int $count): void
+    public function start(int $count, ?float $workerShutdownTimeout = ClusterWatcher::WORKER_TIMEOUT): void
     {
         if ($this->running || $this->queue->isComplete()) {
             throw new \Error("The cluster watcher is already running or has already run");
@@ -137,7 +142,7 @@ final class ClusterWatcher
         try {
             for ($i = 0; $i < $count; ++$i) {
                 $id = $this->nextId++;
-                $this->workers[$id] = $this->startWorker($id);
+                $this->workers[$id] = $this->startWorker($id, $workerShutdownTimeout);
             }
         } catch (\Throwable $exception) {
             $this->stop();
@@ -146,9 +151,11 @@ final class ClusterWatcher
     }
 
     /**
-     * @param positive-int $id
+     * @param positive-int $id The worker ID.
+     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
+     *  or null to wait indefinitely.
      */
-    private function startWorker(int $id): ContextClusterWorker
+    private function startWorker(int $id, ?float $shutdownTimeout): ContextClusterWorker
     {
         $context = $this->contextFactory->start($this->script);
 
@@ -203,12 +210,13 @@ final class ClusterWatcher
             $socket,
             $deferredCancellation,
             $id,
+            $shutdownTimeout,
         ): void {
             async($this->provider->provideFor(...), $socket, $deferredCancellation->getCancellation())->ignore();
 
             try {
                 try {
-                    $worker->run();
+                    $worker->run($shutdownTimeout);
 
                     $worker->info("Worker {$id} terminated cleanly" .
                         ($this->running ? ", restarting..." : ""));
@@ -230,7 +238,7 @@ final class ClusterWatcher
                 }
 
                 if ($this->running) {
-                    $this->workers[$id] = $this->startWorker($this->nextId++);
+                    $this->workers[$id] = $this->startWorker($this->nextId++, $shutdownTimeout);
                 }
             } catch (\Throwable $exception) {
                 $this->stop();
