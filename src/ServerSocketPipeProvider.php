@@ -28,6 +28,7 @@ final class ServerSocketPipeProvider
     private readonly BindContext $bindContext;
     private readonly Serializer $serializer;
 
+    /** @var array<non-empty-string, resource> */
     private array $servers = [];
 
     public function __construct(BindContext $bindContext = new BindContext())
