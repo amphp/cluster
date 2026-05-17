@@ -4,7 +4,6 @@ namespace Amp\Cluster\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\Cluster\ClusterWatcher;
 use Amp\Cluster\ClusterWorker;
 use Amp\Cluster\ClusterWorkerMessage;
 use Amp\DeferredCancellation;
