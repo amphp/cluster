@@ -271,7 +271,10 @@ final class ClusterWatcher
                 }
 
                 if ($this->running) {
-                    $this->workers[$id] = $this->startWorker($this->nextId++, $shutdownTimeout, $pingTimeout);
+                    unset($this->workers[$id]);
+
+                    $id = $this->nextId++;
+                    $this->workers[$id] = $this->startWorker($id, $shutdownTimeout, $pingTimeout);
                 }
             } catch (\Throwable $exception) {
                 $this->stop();

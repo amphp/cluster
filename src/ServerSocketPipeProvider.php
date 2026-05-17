@@ -14,6 +14,7 @@ use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\Serializer;
 use Amp\Socket\BindContext;
 use Amp\Socket\SocketAddress;
+use Amp\Socket\SocketAddressType;
 use Amp\Socket\SocketException;
 use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
@@ -27,6 +28,7 @@ final class ServerSocketPipeProvider
     private readonly BindContext $bindContext;
     private readonly Serializer $serializer;
 
+    /** @var array<non-empty-string, resource> */
     private array $servers = [];
 
     public function __construct(BindContext $bindContext = new BindContext())
@@ -62,7 +64,10 @@ final class ServerSocketPipeProvider
                     );
                 }
 
-                $uri = (string) $address;
+                $uri = match ($address->getType()) {
+                    SocketAddressType::Internet => 'tcp://' . $address->toString(),
+                    SocketAddressType::Unix => 'unix://' . $address->toString(),
+                };
                 $server = $this->servers[$uri] ??= self::bind($uri, $this->bindContext);
 
                 $pipe->send($server, $address);
