@@ -49,6 +49,7 @@ final class ServerSocketPipeFactory implements ServerSocketFactory
         async(static fn () => $channel->send(null))->ignore();
     }
 
+    #[\Override]
     public function listen(SocketAddress|string $address, ?BindContext $bindContext = null): ServerSocket
     {
         $bindContext ??= new BindContext();
