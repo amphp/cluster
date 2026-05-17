@@ -21,6 +21,7 @@ use Monolog\Logger;
 use Psr\Log\AbstractLogger;
 use Revolt\EventLoop;
 use function Amp\async;
+use function Amp\now;
 use function Amp\weakClosure;
 
 /**
@@ -36,7 +37,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     use ForbidCloning;
     use ForbidSerialization;
 
-    private int $lastActivity;
+    private float $lastActivity;
 
     private readonly Future $joinFuture;
 
@@ -53,7 +54,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         private readonly DeferredCancellation $deferredCancellation,
         private readonly Logger $logger,
     ) {
-        $this->lastActivity = \time();
+        $this->lastActivity = now();
         $this->joinFuture = async($this->context->join(...));
     }
 
@@ -79,8 +80,8 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
      */
     public function run(?float $shutdownTimeout, float $pingTimeout): void
     {
-        $watcher = EventLoop::repeat($pingTimeout / 2, weakClosure(function () use ($pingTimeout): void {
-            if ($this->lastActivity < \time() - $pingTimeout) {
+        $watcher = EventLoop::repeat(1, weakClosure(function () use ($pingTimeout): void {
+            if ($this->lastActivity < now() - $pingTimeout) {
                 $this->close();
                 return;
             }
@@ -99,7 +100,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
             // In that case, join it.
             /** @var WorkerMessage $message */
             while ($message = $this->context->receive($cancellation)) {
-                $this->lastActivity = \time();
+                $this->lastActivity = now();
 
                 /** @psalm-suppress UnhandledMatchCondition False positive. */
                 match ($message->type) {

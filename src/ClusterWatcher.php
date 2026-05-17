@@ -154,16 +154,18 @@ final class ClusterWatcher
             throw new \ValueError("The number of workers must be greater than zero");
         }
 
-        if ($workerShutdownTimeout <= 0) {
-            throw new \ValueError(
-                'Worker shutdown timeout must be greater than zero (seconds); got ' . $workerShutdownTimeout,
-            );
+        if ($workerShutdownTimeout !== null && $workerShutdownTimeout <= 0) {
+            throw new \ValueError(\sprintf(
+                'Worker shutdown timeout must be NULL or greater than zero (seconds); got %.3f',
+                $workerShutdownTimeout,
+            ));
         }
 
         if ($workerPingTimeout <= 0) {
-            throw new \ValueError(
-                'Worker ping timeout must be greater than zero (seconds); got ' . $workerPingTimeout,
-            );
+            throw new \ValueError(\sprintf(
+                'Worker ping timeout must be greater than zero (seconds); got %.3f',
+                $workerPingTimeout,
+            ));
         }
 
         $this->workers = [];
