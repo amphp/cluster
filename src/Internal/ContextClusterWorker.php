@@ -37,8 +37,6 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     use ForbidCloning;
     use ForbidSerialization;
 
-    private const PING_TIMEOUT = 10.0;
-
     /** @var float Last time the worker sent a message. */
     private float $lastActivity;
 
@@ -79,20 +77,22 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
     /**
      * Run the worker.
      *
-     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
+     * @param float $pingTimeout Seconds without activity before the watcher considers a worker dead
      *    or null to wait indefinitely.
+     * @param float|null $shutdownTimeout The maximum time to wait for the worker to shut down, in seconds,
+     *    and terminates it.
      */
-    public function run(?float $shutdownTimeout): void
+    public function run(float $pingTimeout, ?float $shutdownTimeout): void
     {
-        $interval = new Interval(1, weakClosure(function (): void {
+        $interval = new Interval(1, weakClosure(function () use ($pingTimeout): void {
             $this->now = now();
 
-            if ($this->lastActivity < $this->now - self::PING_TIMEOUT) {
+            if ($this->lastActivity < $this->now - $pingTimeout) {
                 $this->close();
                 return;
             }
 
-            if ($this->lastActivity >= $this->now - self::PING_TIMEOUT / 2.0) {
+            if ($this->lastActivity >= $this->now - $pingTimeout / 2.0) {
                 return;
             }
 
@@ -102,6 +102,8 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
                 $this->close();
             }
         }), reference: false);
+
+        $this->lastActivity = $this->now;
 
         $cancellation = $this->deferredCancellation->getCancellation();
 
