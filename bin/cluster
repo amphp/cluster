@@ -31,8 +31,9 @@ const HELP = <<<EOT
     -l, --log                Set the minimum log output level (default: debug)
     -f, --file               Log to file path instead of STDOUT (requires amphp/file)
                              Asterisks (*) in path will be replaced with cluster PID
-        --format             Log output format: console, line, or json (default: console
-                             when logging to STDOUT, line when --file is set)
+        --format             Log output format: auto, console, line, or json (default: auto,
+                             which uses console formatting when logging to STDOUT and line
+                             formatting when --file is set)
     -n, --name               Cluster process name
     -p, --pid-file           File path to write current PID to
     -t, --shutdown-timeout   Shutdown timeout in seconds
@@ -90,7 +91,9 @@ $args = [
     ],
     "format" => [
         "longPrefix" => "format",
-        "description" => "Log output format: console, line, or json. Defaults to console when logging to STDOUT and line when --file is set.",
+        "description" => "Log output format: auto, console, line, or json. Using auto (default) will use console " .
+                "formatting when logging to STDOUT and line formatting when --file is set.",
+        "defaultValue" => "auto",
     ],
     "workers" => [
         "prefix" => "w",
@@ -172,13 +175,15 @@ try {
     exit(1);
 }
 
+$pid = (string) getmypid();
+
 // some command line SAPIs (e.g. phpdbg) don't have that function
 if (function_exists("cli_set_process_title")) {
     @cli_set_process_title($arguments->get("name"));
 }
 
 if ($arguments->defined("pid-file")) {
-    file_put_contents($arguments->get("pid-file"), getmypid());
+    file_put_contents($arguments->get("pid-file"), $pid);
     $pidFilePath = realpath($arguments->get("pid-file"));
     register_shutdown_function(static fn () => @unlink($pidFilePath));
 }
@@ -192,28 +197,29 @@ if ($loggingToFile) {
         throw new Exception("amphp/file must be installed to log to a file");
     }
 
-    $path = str_replace('*', getmypid(), $arguments->get("file"));
+    $path = str_replace('*', $pid, $arguments->get("file"));
     $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
 } else {
     $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
 }
 
-$format = $arguments->get("format") ?? ($loggingToFile ? "line" : "console");
+$format = $arguments->get("format");
 
 $formatter = match ($format) {
-    "console" => new ConsoleFormatter,
-    "line" => new LineFormatter,
-    "json" => new JsonFormatter,
+    "auto" => $loggingToFile ? new LineFormatter() : new ConsoleFormatter(),
+    "console" => new ConsoleFormatter(),
+    "line" => new LineFormatter(),
+    "json" => new JsonFormatter(),
     default => throw new Exception("Invalid --format value '{$format}'. Valid: console, line, json"),
 };
 
 if ($formatter instanceof LineFormatter) {
-    $formatter->allowInlineLineBreaks(true);
+    $formatter->allowInlineLineBreaks();
 }
 
 $logHandler->setFormatter($formatter);
 
-$logger = new Logger("cluster-" . getmypid());
+$logger = new Logger("cluster-" . $pid);
 $logger->pushHandler($logHandler);
 
 $workers = $arguments->get("workers");
@@ -225,7 +231,7 @@ if (!is_file($script)) {
     exit(1);
 }
 
-$logger->info("Starting cluster PID " . getmypid() . " with " . $workers . " workers");
+$logger->info("Starting cluster PID " . $pid . " with " . $workers . " workers");
 
 if (isset($pidFilePath)) {
     $logger->info("Wrote PID file to " . $pidFilePath);
