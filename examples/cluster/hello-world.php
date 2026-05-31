@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
+use Amp\Cluster\ClusterLogSerializationProcessor;
 use Amp\Log\ConsoleFormatter;
 use Amp\Log\StreamHandler;
 use Amp\Socket\InternetAddress;
@@ -19,15 +20,17 @@ $server = $socketFactory->listen(new InternetAddress("127.0.0.1", 1337));
 
 $id = (int) (Cluster::getContextId() ?? getmypid());
 
+$logger = new Logger('worker-' . $id);
+
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {
+    $logger->pushProcessor(new ClusterLogSerializationProcessor());
     $handler = Cluster::createLogHandler();
 } else {
     $handler = new StreamHandler(ByteStream\getStdout());
-    $handler->setFormatter(new ConsoleFormatter);
+    $handler->setFormatter(new ConsoleFormatter());
 }
 
-$logger = new Logger('worker-' . $id);
 $logger->pushHandler($handler);
 
 $logger->info(sprintf("Listening on %s in worker #%s", $server->getAddress(), $id));

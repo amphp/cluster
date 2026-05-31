@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . "/vendor/autoload.php";
 
 use Amp\ByteStream;
 use Amp\Cluster\Cluster;
+use Amp\Cluster\ClusterLogSerializationProcessor;
 use Amp\Http\HttpStatus;
 use Amp\Http\Server\DefaultErrorHandler;
 use Amp\Http\Server\Driver\SocketClientFactory;
@@ -20,17 +21,21 @@ use Monolog\Logger;
 // Run using bin/cluster examples/cluster/simple-http-server.php
 // Test using your browser by connecting to http://localhost:8080/
 
+$logger = new Logger('worker-' . (string) (Cluster::getContextId() ?? getmypid()));
+
 // Creating a log handler in this way allows the script to be run in a cluster or standalone.
 if (Cluster::isWorker()) {
+    $logger->pushProcessor(new ClusterLogSerializationProcessor());
     $handler = Cluster::createLogHandler();
 } else {
     $handler = new StreamHandler(ByteStream\getStdout());
-    $handler->setFormatter(new ConsoleFormatter);
+    $handler->setFormatter(new ConsoleFormatter());
 }
 
-$logger = new Logger('worker-' . (string) (Cluster::getContextId() ?? getmypid()));
 $logger->pushHandler($handler);
 $logger->useLoggingLoopDetection(false);
+
+$logger->info("HTTP server listing in PID {pid}", ['test' => fn () => 'test', 'pid' => getmypid()]);
 
 // Set up a simple request handler.
 $server = new SocketHttpServer(
