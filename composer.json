@@ -47,7 +47,7 @@
     },
     "require-dev": {
         "ext-pcntl": "*",
-        "amphp/file": "^3",
+        "amphp/file": "^3|^4",
         "amphp/http-server": "^3",
         "amphp/phpunit-util": "^3",
         "amphp/php-cs-fixer-config": "^2",
@@ -74,7 +74,7 @@
         "amphp/file": "Required for logging to a file"
     },
     "conflict": {
-        "amphp/file": "<3 || >=4"
+        "amphp/file": "<3 || >=5"
     },
     "bin": [
         "bin/cluster"
