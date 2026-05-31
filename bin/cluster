@@ -37,6 +37,7 @@ const HELP = <<<EOT
     -n, --name               Cluster process name
     -p, --pid-file           File path to write current PID to
     -t, --shutdown-timeout   Shutdown timeout in seconds
+        --ping-timeout       Worker ping timeout in seconds
     --                       Marker to separate cluster and worker arguments
 
     Example Usage:
@@ -112,7 +113,13 @@ $args = [
         "longPrefix" => "shutdown-timeout",
         "description" => "Shutdown timeout in seconds",
         "castTo" => "float",
-        "defaultValue" => 1,
+        "defaultValue" => ClusterWatcher::DEFAULT_WORKER_SHUTDOWN_TIMEOUT,
+    ],
+    "ping-timeout" => [
+        "longPrefix" => "ping-timeout",
+        "description" => "Worker ping timeout in seconds",
+        "castTo" => "float",
+        "defaultValue" => ClusterWatcher::DEFAULT_WORKER_PING_TIMEOUT,
     ],
     "name" => [
         "prefix" => "n",
@@ -165,10 +172,6 @@ try {
         echo HELP;
         exit(0);
     }
-
-    if ($arguments->get("script") === null) {
-        throw new Exception("Script path is required");
-    }
 } catch (Exception $e) {
     echo "Invalid arguments: " . $e->getMessage() . PHP_EOL . PHP_EOL;
     echo HELP;
@@ -182,70 +185,93 @@ if (function_exists("cli_set_process_title")) {
     @cli_set_process_title($arguments->get("name"));
 }
 
-if ($arguments->defined("pid-file")) {
-    file_put_contents($arguments->get("pid-file"), $pid);
-    $pidFilePath = realpath($arguments->get("pid-file"));
-    register_shutdown_function(static fn () => @unlink($pidFilePath));
-}
-
+$script = $arguments->get("script");
 $level = $arguments->get("log");
-
 $loggingToFile = $arguments->defined("file", $argv);
-
-if ($loggingToFile) {
-    if (!interface_exists(File\File::class)) {
-        throw new Exception("amphp/file must be installed to log to a file");
-    }
-
-    $path = str_replace('*', $pid, $arguments->get("file"));
-    $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
-} else {
-    $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
-}
-
 $format = $arguments->get("format");
 
-$formatter = match ($format) {
-    "auto" => $loggingToFile ? new LineFormatter() : new ConsoleFormatter(),
-    "console" => new ConsoleFormatter(),
-    "line" => new LineFormatter(),
-    "json" => new JsonFormatter(),
-    default => throw new Exception("Invalid --format value '{$format}'. Valid: console, line, json"),
-};
+try {
+    if ($script === null) {
+        throw new Exception("Script path is required");
+    }
 
-if ($formatter instanceof LineFormatter) {
-    $formatter->allowInlineLineBreaks();
+    if (!is_file($script)) {
+        throw new Exception("Error: Could not find script at path " . $script);
+    }
+
+    if ($loggingToFile) {
+        if (!interface_exists(File\File::class)) {
+            throw new Exception("amphp/file must be installed to log to a file");
+        }
+
+        $path = str_replace('*', $pid, $arguments->get("file"));
+        $logHandler = new StreamHandler(File\openFile($path, "a"), $level);
+    } else {
+        $logHandler = new StreamHandler(ByteStream\getStdout(), $level);
+    }
+
+    $formatter = match ($format) {
+        "auto" => $loggingToFile ? new LineFormatter() : new ConsoleFormatter(),
+        "console" => new ConsoleFormatter(),
+        "line" => new LineFormatter(),
+        "json" => new JsonFormatter(),
+        default => throw new Exception("Invalid --format value '{$format}'. Valid: auto, console, line, json"),
+    };
+
+    if ($formatter instanceof LineFormatter) {
+        $formatter->allowInlineLineBreaks();
+    }
+
+    $logHandler->setFormatter($formatter);
+
+    $workers = $arguments->get("workers");
+    $shutdownTimeout = $arguments->get("shutdown-timeout");
+    $pingTimeout = $arguments->get("ping-timeout");
+
+    if ($workers < 1) {
+        throw new Exception("Invalid worker count: " . $workers);
+    }
+
+    if ($shutdownTimeout < 0) {
+        throw new Exception("Invalid shutdown timeout: " . $shutdownTimeout);
+    }
+
+    if ($pingTimeout < 0) {
+        throw new Exception("Invalid ping timeout: " . $pingTimeout);
+    }
+} catch (Exception $e) {
+    echo $e->getMessage() . PHP_EOL . PHP_EOL;
+    echo HELP;
+    exit(1);
 }
-
-$logHandler->setFormatter($formatter);
 
 $logger = new Logger("cluster-" . $pid);
 $logger->pushHandler($logHandler);
 
-$workers = $arguments->get("workers");
-$shutdownTimeout = $arguments->get("shutdown-timeout");
-$script = $arguments->get("script");
-
-if (!is_file($script)) {
-    echo "Error: Could not find script at path " . $script . PHP_EOL . PHP_EOL;
-    exit(1);
-}
-
 $logger->info("Starting cluster PID " . $pid . " with " . $workers . " workers");
 
-if (isset($pidFilePath)) {
+if ($arguments->defined("pid-file")) {
+    file_put_contents($arguments->get("pid-file"), $pid);
+    $pidFilePath = realpath($arguments->get("pid-file"));
+    register_shutdown_function(static fn () => @unlink($pidFilePath));
     $logger->info("Wrote PID file to " . $pidFilePath);
 }
 
-array_unshift($workerArguments, $arguments->get("script"));
-$watcher = new ClusterWatcher($workerArguments, $logger);
+array_unshift($workerArguments, $script);
+
+$watcher = new ClusterWatcher(
+    script: $workerArguments,
+    logger: $logger,
+    workerShutdownTimeout: $shutdownTimeout,
+    workerPingTimeout: $pingTimeout,
+);
 
 try {
     $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger, $shutdownTimeout): void {
         EventLoop::cancel($watcherId);
 
-        $logger->info(sprintf('Stopping cluster due to received signal: %d', $signalNumber));
-        $watcher->stop($shutdownTimeout > 0 ? new TimeoutCancellation($shutdownTimeout) : null);
+        $logger->info('Stopping cluster due to received signal: ' . $signalNumber);
+        $watcher->stop(new TimeoutCancellation($shutdownTimeout + 1));
     };
 
     foreach (Cluster::getSignalList() as $signo) {
@@ -255,7 +281,7 @@ try {
     $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger): void {
         EventLoop::disable($watcherId);
 
-        $logger->info(sprintf('Restarting cluster due to received signal: %d', $signalNumber));
+        $logger->info('Restarting cluster due to received signal: ' . $signalNumber);
         $watcher->restart();
 
         EventLoop::enable($watcherId);
