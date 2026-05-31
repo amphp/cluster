@@ -43,6 +43,13 @@ return function (Channel $channel): void {
                 $pid,
             );
 
+            $client->write(sprintf(
+                "Hello to %s from %s in PID %d\n",
+                $client->getRemoteAddress()->toString(),
+                $client->getLocalAddress()->toString(),
+                $pid,
+            ));
+
             $client->close();
         }
     } catch (CancelledException) {
