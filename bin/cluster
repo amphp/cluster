@@ -15,6 +15,7 @@ use Monolog\Logger;
 use Psr\Log\LogLevel;
 use Revolt\EventLoop;
 use function Amp\Cluster\countCpuCores;
+use function Amp\Process\getSignalName;
 
 const HELP = <<<EOT
             __           __
@@ -270,7 +271,8 @@ try {
     $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger, $shutdownTimeout): void {
         EventLoop::cancel($watcherId);
 
-        $logger->info('Stopping cluster due to received signal: ' . $signalNumber);
+        $signalName = getSignalName($signalNumber) ?? $signalNumber;
+        $logger->info('Stopping cluster due to received signal: ' . $signalName);
         $watcher->stop(new TimeoutCancellation($shutdownTimeout + 1));
     };
 
@@ -281,7 +283,8 @@ try {
     $signalHandler = function (string $watcherId, int $signalNumber) use ($watcher, $logger): void {
         EventLoop::disable($watcherId);
 
-        $logger->info('Restarting cluster due to received signal: ' . $signalNumber);
+        $signalName = getSignalName($signalNumber) ?? $signalNumber;
+        $logger->info('Restarting cluster due to received signal: ' . $signalName);
         $watcher->restart();
 
         EventLoop::enable($watcherId);

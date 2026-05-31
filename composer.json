@@ -36,7 +36,7 @@
         "amphp/log": "^2",
         "amphp/parallel": "^2.2",
         "amphp/pipeline": "^1.1",
-        "amphp/process": "^2",
+        "amphp/process": "^2.1",
         "amphp/serialization": "^1",
         "amphp/socket": "^2",
         "amphp/sync": "^2",
