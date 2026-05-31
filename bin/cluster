@@ -162,7 +162,7 @@ try {
             if (!$flags[$argv[$i]]) {
                 $i++;
             }
-        } elseif ($argv[0] === "-") {
+        } elseif ($argv[$i][0] === "-") {
             throw new Exception("Unknown command line option: {$argv[$i]}");
         }
     }
