@@ -266,8 +266,6 @@ final class ClusterWatcher
                 }
 
                 if ($this->running) {
-                    unset($this->workers[$id]);
-
                     $id = $this->nextId++;
                     $this->workers[$id] = $this->startWorker($id);
                 }
