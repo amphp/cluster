@@ -5,13 +5,13 @@ namespace Amp\Cluster\Internal;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Sync\Channel;
-use Monolog\Handler\AbstractProcessingHandler;
+use Monolog\Handler\AbstractHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
 use Psr\Log\LogLevel;
 
 /** @internal */
-final class ClusterLogHandler extends AbstractProcessingHandler
+final class ClusterLogHandler extends AbstractHandler
 {
     use ForbidCloning;
     use ForbidSerialization;
@@ -33,8 +33,15 @@ final class ClusterLogHandler extends AbstractProcessingHandler
      * @param array|LogRecord $record Array for Monolog v1.x or 2.x and {@see LogRecord} for v3.x.
      */
     #[\Override]
-    protected function write(array|LogRecord $record): void
+    public function handle(array|LogRecord $record): bool
     {
+        /** @psalm-suppress PossiblyInvalidArgument */
+        if (!$this->isHandling($record)) {
+            return false;
+        }
+
         $this->channel->send(new WorkerMessage(WorkerMessageType::Log, $record));
+
+        return !$this->bubble;
     }
 }
