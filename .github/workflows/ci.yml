@@ -33,9 +33,20 @@ jobs:
             job-description: 'on macOS'
             psalm: skip
 
+          - operating-system: 'ubuntu-latest'
+            php-version: '8.6'
+            job-description: '(experimental)'
+            experimental: true
+            psalm: 'skip'
+            style-fix: 'none'
+            composer-require-checker-version: 'none'
+            composer-flags: '--ignore-platform-req=php+'
+
     name: PHP ${{ matrix.php-version }} ${{ matrix.job-description }}
 
     runs-on: ${{ matrix.operating-system }}
+
+    continue-on-error: ${{ matrix.experimental == true }}
 
     steps:
       - name: Set git to use LF
