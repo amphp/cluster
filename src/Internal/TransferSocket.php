@@ -16,9 +16,14 @@ final class TransferSocket implements Closable
     use ForbidCloning;
     use ForbidSerialization;
 
-    /** Messages are prefixed with their length as an unsigned 32-bit integer in network byte order. */
-    private const HEADER_FORMAT = 'N';
-    private const HEADER_LENGTH = 4;
+    private const HEADER_PACK_FORMAT = 'NC';
+    private const HEADER_UNPACK_FORMAT = 'Nlength/Cflags';
+    private const HEADER_LENGTH = 5;
+
+    /** Set if a socket is attached to the message. */
+    private const FLAG_SOCKET = 0x01;
+    private const FLAG_MASK = self::FLAG_SOCKET;
+
     private const MAX_DATA_LENGTH_LIMIT = 0xffffffff; // Largest length representable in the header.
 
     public const DEFAULT_DATA_LENGTH_LIMIT = 1 << 20; // 1MiB
@@ -43,8 +48,7 @@ final class TransferSocket implements Closable
     private readonly DeferredFuture $onClose;
 
     /**
-     * @param positive-int $dataLengthLimit Maximum bytes which may be sent or received as data alongside a socket.
-     *     May not exceed 2^32 - 1 bytes, the largest length representable in the message header.
+     * @param positive-int $dataLengthLimit Maximum bytes which may be sent or received as data in each message.
      * @param positive-int $socketsPerReadLimit Maximum number of sockets which may be received in a single read.
      *     Additional sockets are discarded by the system, so receiving more throws a {@see SocketException}.
      */
@@ -128,18 +132,14 @@ final class TransferSocket implements Closable
     /**
      * Reads available data from the transfer socket, returning any messages which have been completely received.
      *
-     * The transfer socket is a stream socket, so a message may be split across several reads, and a single read
-     * may contain parts of several messages. Each message is prefixed with its length and the transferred socket
-     * is attached to the first byte of the message, so it will have always been received by the time the message
-     * is complete.
-     *
-     * @return list<TransferredResource<string>> Empty if no complete message is available.
+     * @return list<TransferredResource<string>> Empty if no complete message is available. The resource of each
+     *     is null if the message was sent without a socket.
      *
      * @throws SocketException
      *
      * @psalm-suppress InvalidArrayOffset $data array is overwritten by socket_recvmsg().
      */
-    public function receiveSockets(): array
+    public function receiveMessages(): array
     {
         $data = [
             "buffer_size" => self::RECEIVE_BUFFER_SIZE,
@@ -202,10 +202,15 @@ final class TransferSocket implements Closable
         $received = [];
         while (\strlen($this->receiveBuffer) >= self::HEADER_LENGTH) {
             /**
-             * @var int $length
-             * @psalm-suppress PossiblyInvalidArrayAccess unpack() cannot fail with at least HEADER_LENGTH bytes.
+             * @var array{length: int, flags: int} $header
+             * @psalm-suppress PossiblyFalseReference unpack() cannot fail with at least HEADER_LENGTH bytes.
              */
-            $length = \unpack(self::HEADER_FORMAT, $this->receiveBuffer)[1];
+            $header = \unpack(self::HEADER_UNPACK_FORMAT, $this->receiveBuffer);
+            ['length' => $length, 'flags' => $flags] = $header;
+
+            if ($flags & ~self::FLAG_MASK) {
+                throw new SocketException(\sprintf('Received a message with unknown flags: 0x%02x', $flags));
+            }
 
             // Checked before buffering the message so a peer cannot force the entire announced length to be buffered.
             if ($length > $this->dataLengthLimit) {
@@ -223,11 +228,14 @@ final class TransferSocket implements Closable
             $transferredData = \substr($this->receiveBuffer, self::HEADER_LENGTH, $length);
             $this->receiveBuffer = \substr($this->receiveBuffer, self::HEADER_LENGTH + $length);
 
-            if ($this->receivedStreams->isEmpty()) {
-                throw new SocketException('Received a message without an accompanying socket');
-            }
+            $transferredStream = null;
+            if ($flags & self::FLAG_SOCKET) {
+                if ($this->receivedStreams->isEmpty()) {
+                    throw new SocketException('Received a message without its accompanying socket');
+                }
 
-            $transferredStream = $this->receivedStreams->shift();
+                $transferredStream = $this->receivedStreams->shift();
+            }
 
             $received[] = new TransferredResource($transferredStream, $transferredData);
         }
@@ -236,21 +244,16 @@ final class TransferSocket implements Closable
     }
 
     /**
-     * Begins transferring the given stream socket along with the given data.
+     * Create a message to be sent on the transfer socket.
      *
-     * @param resource $stream Stream socket resource.
-     *
-     * @return string|null Null if the socket buffer was full and nothing was sent, in which case this method must
-     *     be called again. Otherwise, the portion of the message which has not yet been sent, which must be sent
-     *     using {@see self::sendData()} before transferring another socket. An empty string indicates the
-     *     entire message was sent.
+     * @param resource|null $stream Stream socket resource, or null to send the data without a socket.
      *
      * @throws SocketException
      */
-    public function sendSocket($stream, string $data): ?string
+    public function createMessage(string $data, mixed $stream): TransferMessage
     {
         /** @psalm-suppress DocblockTypeContradiction */
-        if (!\is_resource($stream)) {
+        if ($stream !== null && !\is_resource($stream)) {
             throw new SocketException('The stream resource closed before being transferred');
         }
 
@@ -262,29 +265,48 @@ final class TransferSocket implements Closable
             ));
         }
 
-        $data = \pack(self::HEADER_FORMAT, \strlen($data)) . $data;
+        $flags = $stream !== null ? self::FLAG_SOCKET : 0;
+        $data = \pack(self::HEADER_PACK_FORMAT, \strlen($data), $flags) . $data;
+
+        return TransferMessage::forDataAndStream($data, $stream);
+    }
+
+    /**
+     * @return TransferMessage|null Returns a new instance of {@see TransferMessage} if the message did not complete
+     *      sending, requiring another call to this method with the returned message once the socket is writable.
+     *
+     * @throws SocketException
+     */
+    public function sendMessage(TransferMessage $message): ?TransferMessage
+    {
+        /** @psalm-suppress DocblockTypeContradiction */
+        if ($message->stream !== null && !\is_resource($message->stream)) {
+            throw new SocketException('The stream resource closed before being transferred');
+        }
+
+        $msg = ["iov" => [$message->data]];
+        if ($message->stream !== null) {
+            $msg["control"] = [
+                ["level" => \SOL_SOCKET, "type" => \SCM_RIGHTS, "data" => [$message->stream]],
+            ];
+        }
 
         // Error checked manually if socket_sendmsg() fails.
         \set_error_handler($this->errorHandler);
         \socket_clear_error($this->socket);
 
         try {
-            $written = \socket_sendmsg($this->socket, [
-                "iov" => [$data],
-                "control" => [
-                    ["level" => \SOL_SOCKET, "type" => \SCM_RIGHTS, "data" => [$stream]],
-                ],
-            ], \MSG_DONTWAIT);
+            $written = \socket_sendmsg($this->socket, $msg, \MSG_DONTWAIT);
 
             if ($written === false) {
                 $errorCode = \socket_last_error($this->socket);
                 if ($errorCode === \SOCKET_EAGAIN) {
                     // Socket buffer full, try again later.
-                    return null;
+                    return $message;
                 }
 
                 throw new SocketException(\sprintf(
-                    'Could not send socket: (%d) %s',
+                    'Could not send message: (%d) %s',
                     $errorCode,
                     \socket_strerror($errorCode),
                 ));
@@ -293,43 +315,11 @@ final class TransferSocket implements Closable
             \restore_error_handler();
         }
 
-        return \substr($data, $written);
-    }
-
-    /**
-     * Continues sending data partially sent by {@see self::sendSocket()}.
-     *
-     * @return string The portion of the data which has still not been sent. An empty string indicates the
-     *     entire message was sent.
-     *
-     * @throws SocketException
-     */
-    public function sendData(string $data): string
-    {
-        // Error checked manually if socket_send() fails.
-        \set_error_handler($this->errorHandler);
-        \socket_clear_error($this->socket);
-
-        try {
-            $written = \socket_send($this->socket, $data, \strlen($data), \MSG_DONTWAIT);
-
-            if ($written === false) {
-                $errorCode = \socket_last_error($this->socket);
-                if ($errorCode === \SOCKET_EAGAIN) {
-                    // Socket buffer full, try again later.
-                    return $data;
-                }
-
-                throw new SocketException(\sprintf(
-                    'Could not send remaining transfer data: (%d) %s',
-                    $errorCode,
-                    \socket_strerror($errorCode),
-                ));
-            }
-        } finally {
-            \restore_error_handler();
+        $data = \substr($message->data, $written);
+        if ($data === '') {
+            return null;
         }
 
-        return \substr($data, $written);
+        return $message->withData($data);
     }
 }

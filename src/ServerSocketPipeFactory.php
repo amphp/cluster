@@ -2,10 +2,11 @@
 
 namespace Amp\Cluster;
 
-use Amp\ByteStream\ReadableBuffer;
+use Amp\ByteStream\ReadableIterableStream;
 use Amp\ByteStream\ResourceStream;
 use Amp\ByteStream\StreamChannel;
 use Amp\ByteStream\WritableStream;
+use Amp\Closable;
 use Amp\Cluster\Internal\StreamResourceReceivePipe;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
@@ -13,7 +14,6 @@ use Amp\Serialization\NativeSerializer;
 use Amp\Serialization\SerializationException;
 use Amp\Socket\BindContext;
 use Amp\Socket\ResourceServerSocket;
-use Amp\Socket\ServerSocket;
 use Amp\Socket\ServerSocketFactory;
 use Amp\Socket\SocketAddress;
 use Amp\Socket\SocketException;
@@ -21,7 +21,7 @@ use Amp\Sync\Channel;
 use Amp\Sync\ChannelException;
 use function Amp\async;
 
-final class ServerSocketPipeFactory implements ServerSocketFactory
+final class ServerSocketPipeFactory implements ServerSocketFactory, Closable
 {
     use ForbidCloning;
     use ForbidSerialization;
@@ -29,28 +29,55 @@ final class ServerSocketPipeFactory implements ServerSocketFactory
     /** @var Channel<never, SocketAddress|null> */
     private readonly Channel $channel;
 
-    /** @var StreamResourceReceivePipe<null> */
+    /**
+     * Receives the bound server socket with its address, or only an error message if binding failed.
+     *
+     * @var StreamResourceReceivePipe<SocketAddress|string>
+     */
     private readonly StreamResourceReceivePipe $pipe;
 
     public function __construct(WritableStream&ResourceStream $stream)
     {
         $serializer = new NativeSerializer();
-        $this->channel = new StreamChannel(new ReadableBuffer(''), $stream, $serializer);
+        $this->channel = new StreamChannel(new ReadableIterableStream([]), $stream, $serializer);
         $this->pipe = new StreamResourceReceivePipe($stream, $serializer);
     }
 
     public function __destruct()
     {
-        if ($this->channel->isClosed()) {
-            return;
+        if (!$this->channel->isClosed()) {
+            async(self::closeChannel(...), $this->channel)->ignore();
         }
-
-        $channel = $this->channel;
-        async(static fn () => $channel->send(null))->ignore();
     }
 
     #[\Override]
-    public function listen(SocketAddress|string $address, ?BindContext $bindContext = null): ServerSocket
+    public function close(): void
+    {
+        self::closeChannel($this->channel);
+    }
+
+    private static function closeChannel(Channel $channel): void
+    {
+        if (!$channel->isClosed()) {
+            $channel->send(null);
+            $channel->close();
+        }
+    }
+
+    #[\Override]
+    public function isClosed(): bool
+    {
+        return $this->channel->isClosed();
+    }
+
+    #[\Override]
+    public function onClose(\Closure $onClose): void
+    {
+        $this->channel->onClose($onClose);
+    }
+
+    #[\Override]
+    public function listen(SocketAddress|string $address, ?BindContext $bindContext = null): ResourceServerSocket
     {
         $bindContext ??= new BindContext();
         if (!$address instanceof SocketAddress) {
@@ -69,9 +96,14 @@ final class ServerSocketPipeFactory implements ServerSocketFactory
             );
         }
 
-        $context = $bindContext->toStreamContextArray();
-
         $stream = $received->getResource();
+        if ($stream === null) {
+            // The providing process failed to bind the socket and sent the reason instead.
+            $message = $received->getData();
+            throw new SocketException(\is_string($message) ? $message : 'Failed to bind server socket');
+        }
+
+        $context = $bindContext->toStreamContextArray();
 
         $socket = \socket_import_stream($stream);
         if (!$socket) {

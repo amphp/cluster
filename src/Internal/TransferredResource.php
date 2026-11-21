@@ -14,7 +14,7 @@ final class TransferredResource
     use ForbidSerialization;
 
     /**
-     * @param resource $resource Stream-socket resource.
+     * @param resource|null $resource Stream-socket resource, or null if the data was sent without a socket.
      * @param T $data
      */
     public function __construct(
@@ -24,7 +24,7 @@ final class TransferredResource
     }
 
     /**
-     * @return resource Stream-socket resource.
+     * @return resource|null Stream-socket resource, or null if the data was sent without a socket.
      */
     public function getResource(): mixed
     {

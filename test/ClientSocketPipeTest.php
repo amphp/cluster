@@ -140,9 +140,9 @@ class ClientSocketPipeTest extends AsyncTestCase
 
         $receivePipe = new ClientSocketReceivePipe($receiveSocket, dataLengthLimit: $limit);
 
-        // Only a header declaring an oversized message is written. The receiver must reject it without waiting
-        // for (and buffering) the data.
-        $sendSocket->write(\pack('N', $limit + 1));
+        // Only a header (data length, then flags) declaring an oversized message is written. The receiver must reject
+        // it without waiting for (and buffering) the data.
+        $sendSocket->write(\pack('NC', $limit + 1, 0));
 
         try {
             $receivePipe->receive(new TimeoutCancellation(1));

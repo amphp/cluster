@@ -48,7 +48,7 @@ final class ServerSocketPipeProvider
     {
         /** @var Channel<SocketAddress|null, never> $channel */
         $channel = new StreamChannel($stream, new WritableBuffer(), $this->serializer);
-        /** @var StreamResourceSendPipe<SocketAddress> $pipe */
+        /** @var StreamResourceSendPipe<SocketAddress|string> $pipe */
         $pipe = new StreamResourceSendPipe($stream, $this->serializer);
 
         try {
@@ -68,7 +68,14 @@ final class ServerSocketPipeProvider
                     SocketAddressType::Internet => 'tcp://' . $address->toString(),
                     SocketAddressType::Unix => 'unix://' . $address->toString(),
                 };
-                $server = $this->servers[$uri] ??= self::bind($uri, $this->bindContext);
+
+                try {
+                    $server = $this->servers[$uri] ??= self::bind($uri, $this->bindContext);
+                } catch (SocketException $exception) {
+                    // Report the failure to the requesting process and continue serving later requests.
+                    $pipe->send(null, $exception->getMessage());
+                    continue;
+                }
 
                 $pipe->send($server, $address);
             }
@@ -81,6 +88,8 @@ final class ServerSocketPipeProvider
 
     /**
      * @return resource
+     *
+     * @throws SocketException If binding the socket fails.
      */
     private static function bind(string $uri, BindContext $bindContext)
     {
@@ -104,7 +113,7 @@ final class ServerSocketPipeProvider
         try {
             // Do NOT use STREAM_SERVER_LISTEN here - we explicitly invoke \socket_listen() in our worker processes
             if (!$server = \stream_socket_server($uri, $errno, $errstr, \STREAM_SERVER_BIND, $context)) {
-                throw new \RuntimeException(\sprintf(
+                throw new SocketException(\sprintf(
                     "Failed binding socket on %s: [Err# %s] %s",
                     $uri,
                     $errno,

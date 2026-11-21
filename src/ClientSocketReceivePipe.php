@@ -46,7 +46,8 @@ final class ClientSocketReceivePipe implements Closable
      * @return TransferredSocket<T>
      *
      * @throws SerializationException If the received data cannot be unserialized.
-     * @throws SocketException If the transfer socket closes before receiving a socket.
+     * @throws SocketException If the transfer socket closes before receiving a socket or the peer sends data without
+     *     a socket, in which case the pipe is closed.
      */
     public function receive(
         ?Cancellation $cancellation = null,
@@ -54,8 +55,15 @@ final class ClientSocketReceivePipe implements Closable
     ): TransferredSocket {
         $received = $this->receive->receive($cancellation);
 
+        $resource = $received->getResource();
+        if ($resource === null) {
+            // ClientSocketSendPipe always sends a socket, so the peer is not using the expected protocol.
+            $this->receive->close();
+            throw new SocketException('Received data without a socket; the transfer pipe has been closed');
+        }
+
         return new TransferredSocket(
-            ResourceSocket::fromServerSocket($received->getResource(), $chunkSize),
+            ResourceSocket::fromServerSocket($resource, $chunkSize),
             $received->getData(),
         );
     }

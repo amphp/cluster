@@ -17,6 +17,7 @@ use Revolt\EventLoop\Suspension;
 
 /**
  * @template-covariant T
+ * @internal
  */
 final class StreamResourceReceivePipe implements Closable
 {
@@ -64,7 +65,7 @@ final class StreamResourceReceivePipe implements Closable
                             'The transfer socket closed while waiting to receive a socket',
                         ));
                     } else {
-                        $transferred = $transferSocket->receiveSockets();
+                        $transferred = $transferSocket->receiveMessages();
                         if (!$transferred) {
                             return;
                         }
@@ -112,8 +113,8 @@ final class StreamResourceReceivePipe implements Closable
     }
 
     /**
-     * @return TransferredResource<T> Object containing the received stream-socket resource and the data sent
-     * or null if the transfer pipe is closed.
+     * @return TransferredResource<T> Object containing the received stream-socket resource and the data sent.
+     *     The resource is null if the data was sent without a socket.
      *
      * @throws SocketException
      * @throws SerializationException

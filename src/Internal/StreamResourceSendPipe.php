@@ -14,6 +14,7 @@ use Revolt\EventLoop\Suspension;
 
 /**
  * @template T
+ * @internal
  */
 final class StreamResourceSendPipe implements Closable
 {
@@ -22,7 +23,7 @@ final class StreamResourceSendPipe implements Closable
 
     private readonly TransferSocket $transferSocket;
 
-    /** @var \SplQueue<array{Suspension<null|\Closure():never>, resource, string, string|null}> */
+    /** @var \SplQueue<array{Suspension<null|\Closure():never>, TransferMessage}> */
     private readonly \SplQueue $transferQueue;
 
     private readonly string $onWritable;
@@ -57,26 +58,22 @@ final class StreamResourceSendPipe implements Closable
                 while (!$transferQueue->isEmpty()) {
                     /**
                      * @var Suspension<null|\Closure():never> $suspension
-                     * @var resource $export
-                     * @var string $data
-                     * @var string|null $remainder
+                     * @var TransferMessage $message
                      */
-                    [$suspension, $export, $data, $remainder] = $transferQueue->shift();
+                    [$suspension, $message] = $transferQueue->shift();
 
                     try {
-                        $remainder = $remainder === null
-                            ? $transferSocket->sendSocket($export, $data)
-                            : $transferSocket->sendData($remainder);
+                        $message = $transferSocket->sendMessage($message);
 
-                        if ($remainder !== '') {
-                            $transferQueue->unshift([$suspension, $export, $data, $remainder]);
+                        if ($message) {
+                            $transferQueue->unshift([$suspension, $message]);
                             return;
                         }
 
                         $suspension->resume();
                     } catch (\Throwable $exception) {
                         // A partially sent message leaves the stream unusable for further transfers.
-                        if ($remainder !== null) {
+                        if ($message?->initiated) {
                             $transferSocket->close();
                         }
 
@@ -123,27 +120,26 @@ final class StreamResourceSendPipe implements Closable
     }
 
     /**
-     * @param resource $stream
+     * @param resource|null $stream Stream socket resource to transfer, or null to send only the data.
      * @param T $data
      *
      * @throws SocketException
      * @throws SerializationException
      */
-    public function send($stream, mixed $data = null): void
+    public function send(mixed $stream, mixed $data = null): void
     {
-        $serialized = $this->serializer->serialize($data);
+        $message = $this->transferSocket->createMessage($this->serializer->serialize($data), $stream);
 
-        $remainder = null;
         if ($this->transferQueue->isEmpty()) {
-            $remainder = $this->transferSocket->sendSocket($stream, $serialized);
-            if ($remainder === '') {
+            $message = $this->transferSocket->sendMessage($message);
+            if (!$message) {
                 return;
             }
         }
 
         /** @var Suspension<null|\Closure():never> $suspension */
         $suspension = EventLoop::getSuspension();
-        $this->transferQueue->push([$suspension, $stream, $serialized, $remainder]);
+        $this->transferQueue->push([$suspension, $message]);
         EventLoop::enable($this->onWritable);
         if ($closure = $suspension->suspend()) {
             $closure(); // Throw exception in closure for better backtrace.
