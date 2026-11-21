@@ -6,9 +6,11 @@ use Amp\Cluster\ClusterWatcher;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
 use Amp\TimeoutCancellation;
+use Monolog\Handler\TestHandler;
 use Monolog\Logger;
 use function Amp\async;
 use function Amp\delay;
+use function Amp\now;
 
 class ClusterWatcherTest extends AsyncTestCase
 {
@@ -119,6 +121,43 @@ class ClusterWatcherTest extends AsyncTestCase
 
         $watcher->stop(new TimeoutCancellation(0.1)); // Give worker time to stop.
         $this->assertSame(1, $invoked);
+
+        $future->await();
+    }
+
+    public function testRestartDelayedForRepeatedlyFailingWorker(): void
+    {
+        $handler = new TestHandler();
+        $this->logger->pushHandler($handler);
+
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-crash.php', $this->logger, new LocalIpcHub);
+
+        /** @var list<float> $startTimes */
+        $startTimes = [];
+        $future = async(function () use (&$startTimes, $watcher): void {
+            foreach ($watcher->getMessageIterator() as $message) {
+                $this->assertSame('started', $message->getData());
+                $startTimes[] = now();
+            }
+        });
+
+        $watcher->start(1);
+
+        // Without a delay, the crashing worker would be restarted dozens of times within this period. With delays of
+        // 1 second after the first crash and 2 seconds after the second, the worker is started only twice.
+        delay(3);
+
+        self::assertCount(2, $startTimes);
+        [$startTime, $restartTime] = $startTimes;
+        self::assertGreaterThanOrEqual(1, $restartTime - $startTime);
+
+        self::assertTrue($handler->hasWarningThatContains('delaying restart by 1 seconds'));
+        self::assertTrue($handler->hasWarningThatContains('delaying restart by 2 seconds'));
+
+        // Stopping while waiting to restart a worker must not wait for the delay to elapse.
+        $stoppedAt = now();
+        $watcher->stop();
+        self::assertLessThan(0.5, now() - $stoppedAt);
 
         $future->await();
     }

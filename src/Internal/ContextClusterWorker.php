@@ -45,6 +45,8 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
 
     private readonly Future $joinFuture;
 
+    private bool $shutdownRequested = false;
+
     /**
      * @param positive-int $id
      * @param Context<mixed, WorkerMessage|null, WatcherMessage|null> $context
@@ -157,8 +159,15 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         $this->deferredCancellation->cancel();
     }
 
+    public function isShutdownRequested(): bool
+    {
+        return $this->shutdownRequested;
+    }
+
     public function shutdown(?Cancellation $cancellation = null): void
     {
+        $this->shutdownRequested = true;
+
         try {
             if (!$this->context->isClosed()) {
                 try {

@@ -26,6 +26,8 @@ use Monolog\Logger;
 use Psr\Log\LoggerInterface as PsrLogger;
 use Revolt\EventLoop;
 use function Amp\async;
+use function Amp\delay;
+use function Amp\now;
 
 /**
  * @template-covariant TReceive
@@ -53,6 +55,18 @@ final class ClusterWatcher
      */
     public const DEFAULT_WORKER_PING_TIMEOUT = 10;
 
+    /**
+     * A worker exiting on its own within this many seconds of starting is considered to have failed. Once a worker
+     * run time has exceeded this time, future restarts are not delayed.
+     */
+    private const RESTART_STABLE_TIME = 30;
+
+    /** Delay in seconds before restarting after the first failure, doubling with each consecutive failure. */
+    private const RESTART_DELAY_INITIAL = 1;
+
+    /** Maximum delay in seconds before restarting a failing worker. */
+    private const RESTART_DELAY_MAX = 30;
+
     private readonly ContextFactory $contextFactory;
 
     private readonly Logger $logger;
@@ -76,6 +90,9 @@ final class ClusterWatcher
 
     /** @var ConcurrentIterator<ClusterWorkerMessage<TReceive, TSend>> */
     private readonly ConcurrentIterator $iterator;
+
+    /** Cancelled when the watcher is stopped to abort delayed worker restarts. */
+    private readonly DeferredCancellation $stopCancellation;
 
     /**
      * @param string|array<string> $script Script path and optional arguments.
@@ -123,6 +140,7 @@ final class ClusterWatcher
 
         $this->queue = new Queue();
         $this->iterator = $this->queue->iterate();
+        $this->stopCancellation = new DeferredCancellation();
     }
 
     public function __destruct()
@@ -183,8 +201,10 @@ final class ClusterWatcher
 
     /**
      * @param positive-int $id The worker ID.
+     * @param int<0, max> $failures Number of consecutive workers which failed before this one, used to delay
+     *     restarting this worker if it also fails.
      */
-    private function startWorker(int $id): ContextClusterWorker
+    private function startWorker(int $id, int $failures = 0): ContextClusterWorker
     {
         $context = $this->contextFactory->start($this->script);
 
@@ -239,7 +259,10 @@ final class ClusterWatcher
             $socket,
             $deferredCancellation,
             $id,
+            $failures,
         ): void {
+            $startedAt = now();
+
             async($this->provider->provideFor(...), $socket, $deferredCancellation->getCancellation())->ignore();
 
             try {
@@ -265,13 +288,42 @@ final class ClusterWatcher
                     $context->close();
                 }
 
-                if ($this->running) {
-                    $id = $this->nextId++;
-                    $this->workers[$id] = $this->startWorker($id);
+                if (!$this->running) {
+                    return;
                 }
-            } catch (\Throwable $exception) {
+
+                // A worker which exited on its own soon after starting is likely failing repeatedly, so delay
+                // restarting it with an exponential backoff after each repeated failure.
+                $lifetime = now() - $startedAt;
+                $failures = $worker->isShutdownRequested() || $lifetime >= self::RESTART_STABLE_TIME
+                    ? 0
+                    : $failures + 1;
+
+                if ($failures > 0) {
+                    /** @psalm-suppress InvalidOperand Mixed int and float operands intentionally produce a float. */
+                    $restartDelay = \min(
+                        (int) (self::RESTART_DELAY_INITIAL * (2 ** ($failures - 1))),
+                        self::RESTART_DELAY_MAX,
+                    );
+
+                    $worker->warning(\sprintf(
+                        'Worker %d exited %.1f seconds after starting; delaying restart by %d seconds',
+                        $id,
+                        $lifetime,
+                        $restartDelay,
+                    ));
+
+                    try {
+                        delay($restartDelay, cancellation: $this->stopCancellation->getCancellation());
+                    } catch (CancelledException) {
+                        return; // Watcher stopped while waiting to restart.
+                    }
+                }
+
+                $id = $this->nextId++;
+                $this->workers[$id] = $this->startWorker($id, $failures);
+            } catch (\Throwable) {
                 $this->stop();
-                throw $exception;
             }
         })->ignore();
 
@@ -309,6 +361,7 @@ final class ClusterWatcher
         }
 
         $this->running = false;
+        $this->stopCancellation->cancel();
 
         $futures = [];
         foreach ($this->workers as $worker) {
