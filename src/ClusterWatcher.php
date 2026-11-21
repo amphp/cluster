@@ -356,7 +356,7 @@ final class ClusterWatcher
      */
     public function stop(?Cancellation $cancellation = null): void
     {
-        if ($this->queue->isComplete()) {
+        if (!$this->running || $this->queue->isComplete()) {
             return;
         }
 
