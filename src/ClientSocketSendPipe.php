@@ -20,21 +20,31 @@ final class ClientSocketSendPipe implements Closable
     use ForbidCloning;
     use ForbidSerialization;
 
+    /** Default maximum length of the serialized data sent with each socket. */
+    public const DEFAULT_DATA_LENGTH_LIMIT = Internal\TransferSocket::DEFAULT_DATA_LENGTH_LIMIT;
+
     /** @var StreamResourceSendPipe<T> */
     private readonly StreamResourceSendPipe $send;
 
+    /**
+     * @param positive-int $dataLengthLimit Maximum length of the serialized data sent with each socket. Should match
+     *     the limit given to the receiving {@see ClientSocketReceivePipe}.
+     */
     public function __construct(
         ResourceStream $resourceStream,
         Serializer $serializer = new NativeSerializer(),
+        int $dataLengthLimit = self::DEFAULT_DATA_LENGTH_LIMIT,
     ) {
-        $this->send = new StreamResourceSendPipe($resourceStream, $serializer);
+        $this->send = new StreamResourceSendPipe($resourceStream, $serializer, $dataLengthLimit);
     }
 
     /**
-     * @param T $data
+     * @param T $data Data to send with the socket. The serialized data may not exceed the data length limit given
+     *     to the constructor.
      *
-     * @throws SerializationException
-     * @throws SocketException
+     * @throws SerializationException If the data cannot be serialized.
+     * @throws SocketException If the serialized data exceeds the data length limit or the socket cannot be
+     *     transferred.
      */
     public function send(ResourceStream $resourceStream, mixed $data = null): void
     {

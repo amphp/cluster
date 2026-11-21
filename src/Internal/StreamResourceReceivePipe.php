@@ -7,7 +7,6 @@ use Amp\ByteStream\ResourceStream;
 use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\Closable;
-use Amp\Cluster\Internal;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Serialization\SerializationException;
@@ -24,7 +23,7 @@ final class StreamResourceReceivePipe implements Closable
     use ForbidCloning;
     use ForbidSerialization;
 
-    private readonly Internal\TransferSocket $transferSocket;
+    private readonly TransferSocket $transferSocket;
 
     /** @var Suspension<(\Closure():never)|null>|null */
     private ?Suspension $waiting = null;
@@ -32,11 +31,17 @@ final class StreamResourceReceivePipe implements Closable
     /** @var \SplQueue<TransferredResource<string>> */
     private readonly \SplQueue $receiveQueue;
 
+    private readonly string $onReadable;
+
+    /**
+     * @param positive-int $dataLengthLimit Maximum length of the serialized data received with each socket.
+     */
     public function __construct(
         ResourceStream $resourceStream,
         private readonly Serializer $serializer,
+        int $dataLengthLimit = TransferSocket::DEFAULT_DATA_LENGTH_LIMIT,
     ) {
-        $this->transferSocket = $transferSocket = new Internal\TransferSocket($resourceStream);
+        $this->transferSocket = $transferSocket = new TransferSocket($resourceStream, $dataLengthLimit);
         $this->receiveQueue = $receiveQueue = new \SplQueue();
 
         $streamResource = $resourceStream->getResource();
@@ -45,7 +50,7 @@ final class StreamResourceReceivePipe implements Closable
         }
 
         $suspension = &$this->waiting;
-        $onReadable = EventLoop::onReadable(
+        $this->onReadable = $onReadable = EventLoop::disable(EventLoop::onReadable(
             $streamResource,
             static function (string $callbackId, $stream) use (
                 &$suspension,
@@ -59,12 +64,15 @@ final class StreamResourceReceivePipe implements Closable
                             'The transfer socket closed while waiting to receive a socket',
                         ));
                     } else {
-                        $received = $transferSocket->receiveSocket();
-                        if (!$received) {
+                        $transferred = $transferSocket->receiveSockets();
+                        if (!$transferred) {
                             return;
                         }
 
-                        $receiveQueue->push($received);
+                        foreach ($transferred as $resource) {
+                            $receiveQueue->push($resource);
+                        }
+
                         $suspension?->resume();
                     }
                 } catch (\Throwable $exception) {
@@ -77,7 +85,7 @@ final class StreamResourceReceivePipe implements Closable
 
                 $suspension = null;
             },
-        );
+        ));
 
         $this->transferSocket->onClose(static function () use (&$suspension, $onReadable): void {
             EventLoop::cancel($onReadable);
@@ -129,6 +137,8 @@ final class StreamResourceReceivePipe implements Closable
                 $waiting = null;
             });
 
+            EventLoop::enable($this->onReadable);
+
             try {
                 if ($closure = $suspension->suspend()) {
                     $closure();
@@ -137,6 +147,7 @@ final class StreamResourceReceivePipe implements Closable
             } finally {
                 /** @psalm-suppress PossiblyNullArgument If $cancellation is not null, $id will not be null. */
                 $cancellation?->unsubscribe($id);
+                EventLoop::disable($this->onReadable);
             }
         }
 

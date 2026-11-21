@@ -4,7 +4,6 @@ namespace Amp\Cluster\Internal;
 
 use Amp\ByteStream\ResourceStream;
 use Amp\Closable;
-use Amp\Cluster\Internal;
 use Amp\ForbidCloning;
 use Amp\ForbidSerialization;
 use Amp\Serialization\SerializationException;
@@ -21,18 +20,22 @@ final class StreamResourceSendPipe implements Closable
     use ForbidCloning;
     use ForbidSerialization;
 
-    private readonly Internal\TransferSocket $transferSocket;
+    private readonly TransferSocket $transferSocket;
 
-    /** @var \SplQueue<array{Suspension<null|\Closure():never>, resource, string}> */
+    /** @var \SplQueue<array{Suspension<null|\Closure():never>, resource, string, string|null}> */
     private readonly \SplQueue $transferQueue;
 
     private readonly string $onWritable;
 
+    /**
+     * @param positive-int $dataLengthLimit Maximum length of the serialized data sent with each socket.
+     */
     public function __construct(
         ResourceStream $resourceStream,
         private readonly Serializer $serializer,
+        int $dataLengthLimit = TransferSocket::DEFAULT_DATA_LENGTH_LIMIT,
     ) {
-        $this->transferSocket = $transferSocket = new Internal\TransferSocket($resourceStream);
+        $this->transferSocket = $transferSocket = new TransferSocket($resourceStream, $dataLengthLimit);
         $this->transferQueue = $transferQueue = new \SplQueue();
 
         $streamResource = $resourceStream->getResource();
@@ -56,17 +59,27 @@ final class StreamResourceSendPipe implements Closable
                      * @var Suspension<null|\Closure():never> $suspension
                      * @var resource $export
                      * @var string $data
+                     * @var string|null $remainder
                      */
-                    [$suspension, $export, $data] = $transferQueue->shift();
+                    [$suspension, $export, $data, $remainder] = $transferQueue->shift();
 
                     try {
-                        if (!$transferSocket->sendSocket($export, $data)) {
-                            $transferQueue->unshift([$suspension, $export, $data]);
+                        $remainder = $remainder === null
+                            ? $transferSocket->sendSocket($export, $data)
+                            : $transferSocket->sendData($remainder);
+
+                        if ($remainder !== '') {
+                            $transferQueue->unshift([$suspension, $export, $data, $remainder]);
                             return;
                         }
 
                         $suspension->resume();
                     } catch (\Throwable $exception) {
+                        // A partially sent message leaves the stream unusable for further transfers.
+                        if ($remainder !== null) {
+                            $transferSocket->close();
+                        }
+
                         $suspension->resume(static fn () => throw new SocketException(
                             'Failed to send socket: ' . $exception->getMessage(),
                             previous: $exception,
@@ -120,14 +133,20 @@ final class StreamResourceSendPipe implements Closable
     {
         $serialized = $this->serializer->serialize($data);
 
-        if (!$this->transferQueue->isEmpty() || !$this->transferSocket->sendSocket($stream, $serialized)) {
-            /** @var Suspension<null|\Closure():never> $suspension */
-            $suspension = EventLoop::getSuspension();
-            $this->transferQueue->push([$suspension, $stream, $serialized]);
-            EventLoop::enable($this->onWritable);
-            if ($closure = $suspension->suspend()) {
-                $closure(); // Throw exception in closure for better backtrace.
+        $remainder = null;
+        if ($this->transferQueue->isEmpty()) {
+            $remainder = $this->transferSocket->sendSocket($stream, $serialized);
+            if ($remainder === '') {
+                return;
             }
+        }
+
+        /** @var Suspension<null|\Closure():never> $suspension */
+        $suspension = EventLoop::getSuspension();
+        $this->transferQueue->push([$suspension, $stream, $serialized, $remainder]);
+        EventLoop::enable($this->onWritable);
+        if ($closure = $suspension->suspend()) {
+            $closure(); // Throw exception in closure for better backtrace.
         }
     }
 }

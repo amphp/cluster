@@ -22,14 +22,22 @@ final class ClientSocketReceivePipe implements Closable
     use ForbidCloning;
     use ForbidSerialization;
 
+    /** Default maximum length of the serialized data received with each socket. */
+    public const DEFAULT_DATA_LENGTH_LIMIT = Internal\TransferSocket::DEFAULT_DATA_LENGTH_LIMIT;
+
     /** @var StreamResourceReceivePipe<T> */
     private readonly StreamResourceReceivePipe $receive;
 
+    /**
+     * @param positive-int $dataLengthLimit Maximum length of the serialized data received with each socket. Should
+     *     match the limit given to the sending {@see ClientSocketSendPipe}.
+     */
     public function __construct(
         ResourceStream $resourceStream,
         Serializer $serializer = new NativeSerializer(),
+        int $dataLengthLimit = self::DEFAULT_DATA_LENGTH_LIMIT,
     ) {
-        $this->receive = new StreamResourceReceivePipe($resourceStream, $serializer);
+        $this->receive = new StreamResourceReceivePipe($resourceStream, $serializer, $dataLengthLimit);
     }
 
     /**
@@ -37,8 +45,8 @@ final class ClientSocketReceivePipe implements Closable
      *
      * @return TransferredSocket<T>
      *
-     * @throws SerializationException
-     * @throws SocketException
+     * @throws SerializationException If the received data cannot be unserialized.
+     * @throws SocketException If the transfer socket closes before receiving a socket.
      */
     public function receive(
         ?Cancellation $cancellation = null,

@@ -24,7 +24,7 @@ Clusters are built by transferring sockets from a parent process to child proces
 
 #### Transferring Client Sockets
 
-`ClientSocketReceivePipe` and `ClientSocketSendPipe` pair of classes are used to send client sockets from one PHP process to another over an existing IPC connection between the two processes.
+`ClientSocketReceivePipe` and `ClientSocketSendPipe` pair of classes are used to send client sockets from one PHP process to another over an existing IPC connection between the two processes. Serializable data may also be sent along with each socket, such as an identifier or state associated with the client.
 
 The example below demonstrates creating a new child process in a parent, then establishing a new IPC socket between the parent and child. That socket is used to create a `ClientSocketSendPipe` in the parent and a corresponding `ClientSocketReceivePipe` in the child. The parent then creates a socket server and listens for connections. When a connection is received, the client socket is transferred to the child process where it is handled.
 
