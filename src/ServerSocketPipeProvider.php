@@ -86,7 +86,8 @@ final class ServerSocketPipeProvider
     {
         static $errorHandler;
 
-        $context = \stream_context_create(\array_merge(
+        // Array keys recursively so the bind context's other options (e.g. so_reuseport) are retained.
+        $context = \stream_context_create(\array_replace_recursive(
             $bindContext->toStreamContextArray(),
             [
                 "socket" => [
