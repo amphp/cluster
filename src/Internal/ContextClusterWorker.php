@@ -17,8 +17,8 @@ use Amp\Pipeline\Queue;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
 use Amp\TimeoutCancellation;
-use Monolog\Handler\HandlerInterface as MonologHandler;
 use Monolog\Logger;
+use Monolog\LogRecord;
 use Psr\Log\AbstractLogger;
 use function Amp\async;
 use function Amp\now;
@@ -123,10 +123,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
                         ->pushAsync(new ClusterWorkerMessage($this, $message->data))
                         ->ignore(),
 
-                    WorkerMessageType::Log => \array_map(
-                        static fn (MonologHandler $handler) => $handler->handle($message->data),
-                        $this->logger->getHandlers(),
-                    ),
+                    WorkerMessageType::Log => $this->handleLogRecord($message->data),
                 };
             }
 
@@ -148,6 +145,28 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         } finally {
             $interval->disable();
             $this->close();
+        }
+    }
+
+    /**
+     * Passes a log record sent by the worker to each handler of the watcher's logger.
+     *
+     * @param array|LogRecord $record Array for Monolog v1.x or 2.x and {@see LogRecord} for v3.x.
+     */
+    private function handleLogRecord(array|LogRecord $record): void
+    {
+        foreach ($this->logger->getHandlers() as $handler) {
+            try {
+                /** @psalm-suppress PossiblyInvalidArgument */
+                $handler->handle($record);
+            } catch (\Throwable $exception) {
+                $exceptionHandler = $this->logger->getExceptionHandler();
+                if (!$exceptionHandler) {
+                    throw $exception;
+                }
+
+                $exceptionHandler($exception, $record);
+            }
         }
     }
 

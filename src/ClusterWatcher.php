@@ -269,19 +269,21 @@ final class ClusterWatcher
                 try {
                     $worker->run($this->workerPingTimeout, $this->workerShutdownTimeout);
 
-                    $worker->info("Worker {$id} terminated cleanly" .
-                        ($this->running ? ", restarting..." : ""));
+                    $worker->info(\sprintf('Worker %d terminated', $id));
                 } catch (CancelledException) {
-                    $worker->info("Worker {$id} forcefully terminated as part of watcher shutdown");
+                    $worker->info(\sprintf('Worker %d forcefully terminated as part of watcher shutdown', $id));
                 } catch (ChannelException $exception) {
-                    $worker->error("Worker {$id} died unexpectedly: {$exception->getMessage()}" .
-                        ($this->running ? ", restarting..." : ""));
-                } catch (\Throwable $exception) {
                     $worker->error(
-                        "Worker {$id} failed: " . (string) $exception,
+                        \sprintf('Worker %d died unexpectedly: %s', $id, $exception->getMessage()),
                         ['exception' => $exception],
                     );
-                    throw $exception;
+                } catch (\Throwable $exception) {
+                    $worker->error(\sprintf(
+                        'Worker %d failed: %s: %s',
+                        $id,
+                        \get_class($exception),
+                        $exception->getMessage(),
+                    ), ['exception' => $exception]);
                 } finally {
                     $deferredCancellation->cancel();
                     unset($this->workers[$id], $this->workerFutures[$id]);
@@ -320,8 +322,10 @@ final class ClusterWatcher
                     }
                 }
 
-                $id = $this->nextId++;
-                $this->workers[$id] = $this->startWorker($id, $failures);
+                $newId = $this->nextId++;
+                $this->workers[$newId] = $this->startWorker($newId, $failures);
+
+                $worker->info(\sprintf('Worker %d was restarted, replaced by worker %d', $id, $newId));
             } catch (\Throwable) {
                 $this->stop();
             }

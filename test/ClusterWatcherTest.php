@@ -6,8 +6,10 @@ use Amp\Cluster\ClusterWatcher;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
 use Amp\TimeoutCancellation;
+use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
+use Monolog\LogRecord;
 use function Amp\async;
 use function Amp\delay;
 use function Amp\now;
@@ -26,7 +28,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testDoubleStart(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub());
 
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('The cluster watcher is already running or has already run');
@@ -41,7 +43,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testInvalidWorkerCount(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub());
 
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('The number of workers must be greater than zero');
@@ -55,7 +57,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testReceivingMessage(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub());
 
         $invoked = false;
         $future = async(function () use (&$invoked, $watcher): void {
@@ -78,7 +80,7 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testRestart(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-message.php', $this->logger, new LocalIpcHub());
 
         $invoked = 0;
         $future = async(function () use (&$invoked, $watcher): void {
@@ -105,7 +107,11 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testGracefulSelfTermination(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-graceful-self-terminate.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(
+            script: __DIR__ . '/scripts/test-graceful-self-terminate.php',
+            logger: $this->logger,
+            hub: new LocalIpcHub(),
+        );
 
         $invoked = 0;
         $future = async(function () use (&$invoked, $watcher): void {
@@ -130,7 +136,7 @@ class ClusterWatcherTest extends AsyncTestCase
         $handler = new TestHandler();
         $this->logger->pushHandler($handler);
 
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-crash.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-crash.php', $this->logger, new LocalIpcHub());
 
         /** @var list<float> $startTimes */
         $startTimes = [];
@@ -164,7 +170,11 @@ class ClusterWatcherTest extends AsyncTestCase
 
     public function testGracefulWatcherTermination(): void
     {
-        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-graceful-terminate-worker.php', $this->logger, new LocalIpcHub);
+        $watcher = new ClusterWatcher(
+            script: __DIR__ . '/scripts/test-graceful-terminate-worker.php',
+            logger: $this->logger,
+            hub: new LocalIpcHub(),
+        );
 
         $received = 0;
 
@@ -182,5 +192,89 @@ class ClusterWatcherTest extends AsyncTestCase
         }
 
         $this->assertSame(2, $received);
+    }
+
+    public function testLogHandlerFailureDoesNotAffectWorker(): void
+    {
+        $testHandler = new TestHandler();
+        $this->logger->pushHandler($testHandler);
+
+        // Pushed last so it is called before the test handler.
+        $this->logger->pushHandler(new class extends AbstractProcessingHandler {
+            protected function write(LogRecord $record): void
+            {
+                throw new \RuntimeException('Log handler failure');
+            }
+        });
+
+        /** @var list<string> $failedRecords */
+        $failedRecords = [];
+        $this->logger->setExceptionHandler(
+            function (\Throwable $exception, LogRecord $record) use (&$failedRecords): void {
+                $this->assertSame('Log handler failure', $exception->getMessage());
+                $failedRecords[] = $record->message;
+            },
+        );
+
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-log.php', $this->logger, new LocalIpcHub());
+        $watcher->start(1);
+
+        try {
+            $iterator = $watcher->getMessageIterator();
+
+            self::assertTrue($iterator->continue());
+            $first = $iterator->getValue();
+
+            self::assertTrue($iterator->continue());
+            $second = $iterator->getValue();
+        } finally {
+            $watcher->stop();
+        }
+
+        self::assertSame('logged', $first->getData());
+        self::assertSame('logged again', $second->getData());
+
+        // Both messages were sent by the same worker, so it was not restarted after the handler failures.
+        self::assertSame($first->getWorker()->getId(), $second->getWorker()->getId());
+
+        // The worker's records reached the remaining handler and each failure was reported to the exception handler.
+        self::assertTrue($testHandler->hasInfoThatContains('First log record'));
+        self::assertTrue($testHandler->hasInfoThatContains('Second log record'));
+    }
+
+    public function testUnexpectedWorkerFailureRestartsWorker(): void
+    {
+        $handler = new TestHandler();
+        $this->logger->pushHandler($handler);
+
+        $watcher = new ClusterWatcher(
+            script: __DIR__ . '/scripts/test-malformed-message.php',
+            logger: $this->logger,
+            hub: new LocalIpcHub(),
+        );
+
+        $watcher->start(1);
+
+        try {
+            $iterator = $watcher->getMessageIterator();
+
+            self::assertTrue($iterator->continue());
+            $first = $iterator->getValue();
+
+            // The replacement is started after a 1-second delay, as the first worker failed soon after starting.
+            self::assertTrue($iterator->continue());
+            $second = $iterator->getValue();
+        } finally {
+            $watcher->stop();
+        }
+
+        self::assertSame('started', $first->getData());
+        self::assertSame('started', $second->getData());
+        self::assertNotSame($first->getWorker()->getId(), $second->getWorker()->getId());
+
+        self::assertTrue($handler->hasErrorThatContains(\sprintf(
+            'Worker %d failed: ',
+            $first->getWorker()->getId(),
+        )));
     }
 }
