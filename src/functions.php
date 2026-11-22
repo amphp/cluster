@@ -16,23 +16,12 @@ function countCpuCores(): int
 
     $os = (\stripos(\PHP_OS, "WIN") === 0) ? "win" : \strtolower(\PHP_OS);
 
-    switch ($os) {
-        case "win":
-            $cmd = "wmic cpu get NumberOfCores";
-            break;
-        case "linux":
-        case "darwin":
-            $cmd = "getconf _NPROCESSORS_ONLN";
-            break;
-        case "netbsd":
-        case "openbsd":
-        case "freebsd":
-            $cmd = "sysctl hw.ncpu | cut -d ':' -f2";
-            break;
-        default:
-            $cmd = null;
-            break;
-    }
+    $cmd = match ($os) {
+        "win" => "wmic cpu get NumberOfCores",
+        "linux", "darwin" => "getconf _NPROCESSORS_ONLN",
+        "netbsd", "openbsd", "freebsd" => "sysctl hw.ncpu | cut -d ':' -f2",
+        default => null,
+    };
 
     /** @psalm-suppress ForbiddenCode */
     $execResult = $cmd ? (string) \shell_exec($cmd) : '1';
@@ -41,7 +30,12 @@ function countCpuCores(): int
         $execResult = \explode("\n", $execResult)[1];
     }
 
-    return (int) \trim($execResult);
+    $cores = (int) \trim($execResult);
+    if ($cores <= 0) {
+        $cores = 1;
+    }
+
+    return $cores;
 }
 
 /**
