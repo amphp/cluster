@@ -141,6 +141,10 @@ final class TransferSocket implements Closable
      */
     public function receiveMessages(): array
     {
+        if ($this->isClosed()) {
+            throw new SocketException('The transfer socket has been closed');
+        }
+
         $data = [
             "buffer_size" => self::RECEIVE_BUFFER_SIZE,
             "controllen" => \socket_cmsg_space(\SOL_SOCKET, \SCM_RIGHTS, $this->socketsPerReadLimit),
@@ -279,6 +283,10 @@ final class TransferSocket implements Closable
      */
     public function sendMessage(TransferMessage $message): ?TransferMessage
     {
+        if ($this->isClosed()) {
+            throw new SocketException('The transfer socket has been closed');
+        }
+
         /** @psalm-suppress DocblockTypeContradiction */
         if ($message->stream !== null && !\is_resource($message->stream)) {
             throw new SocketException('The stream resource closed before being transferred');

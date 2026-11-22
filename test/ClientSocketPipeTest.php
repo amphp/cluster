@@ -155,4 +155,21 @@ class ClientSocketPipeTest extends AsyncTestCase
 
         $sendSocket->close();
     }
+
+    public function testSendAfterClose(): void
+    {
+        [$sendSocket, $receiveSocket] = Socket\createSocketPair();
+
+        $sendPipe = new ClientSocketSendPipe($sendSocket);
+        $sendPipe->close();
+
+        $this->expectException(SocketException::class);
+        $this->expectExceptionMessage('The transfer socket has been closed');
+
+        try {
+            $sendPipe->send($receiveSocket, 'data');
+        } finally {
+            $receiveSocket->close();
+        }
+    }
 }
