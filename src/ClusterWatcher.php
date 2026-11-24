@@ -270,8 +270,17 @@ final class ClusterWatcher
                     $worker->run($this->workerPingTimeout, $this->workerShutdownTimeout);
 
                     $worker->info(\sprintf('Worker %d terminated', $id));
-                } catch (CancelledException) {
-                    $worker->info(\sprintf('Worker %d forcefully terminated as part of watcher shutdown', $id));
+                } catch (CancelledException $exception) {
+                    // The previous exception is the reason the watcher closed the worker, if not shutting down.
+                    $reason = $exception->getPrevious();
+                    if ($reason !== null) {
+                        $worker->error(
+                            \sprintf('Worker %d killed: %s', $id, $reason->getMessage()),
+                            ['exception' => $reason],
+                        );
+                    } else {
+                        $worker->info(\sprintf('Worker %d forcefully terminated as part of watcher shutdown', $id));
+                    }
                 } catch (ChannelException $exception) {
                     $worker->error(
                         \sprintf('Worker %d died unexpectedly: %s', $id, $exception->getMessage()),
@@ -353,10 +362,10 @@ final class ClusterWatcher
     }
 
     /**
-     * Stops all cluster workers. Workers are killed if the cancellation token is cancelled.
+     * Stops all cluster workers, waiting for each to exit.
      *
-     * @param Cancellation|null $cancellation Token to request cancellation of waiting for shutdown.
-     * When cancelled, the workers are forcefully killed. If null, the workers are killed immediately.
+     * @param Cancellation|null $cancellation Cancels waiting for workers to exit, after which any remaining workers are
+     *     forcefully killed. If null, waits until every worker has exited.
      */
     public function stop(?Cancellation $cancellation = null): void
     {

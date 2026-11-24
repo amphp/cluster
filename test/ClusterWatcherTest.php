@@ -277,4 +277,33 @@ class ClusterWatcherTest extends AsyncTestCase
             $first->getWorker()->getId(),
         )));
     }
+
+    public function testUnresponsiveWorkerIsKilledAndLogged(): void
+    {
+        $handler = new TestHandler();
+        $this->logger->pushHandler($handler);
+
+        $watcher = new ClusterWatcher(
+            script: __DIR__ . '/scripts/test-unresponsive.php',
+            logger: $this->logger,
+            hub: new LocalIpcHub(),
+            workerPingTimeout: 1,
+        );
+
+        $watcher->start(1);
+
+        try {
+            $iterator = $watcher->getMessageIterator();
+            self::assertTrue($iterator->continue());
+            self::assertSame('started', $iterator->getValue()->getData());
+
+            // The worker blocks the event-loop, so it is killed once it has not responded within the ping timeout.
+            delay(3);
+
+            self::assertTrue($handler->hasErrorThatContains('No response to pings within 1 seconds'));
+        } finally {
+            // The replacement worker will also be blocked, so do not wait for it to exit.
+            $watcher->stop(new TimeoutCancellation(0.1));
+        }
+    }
 }

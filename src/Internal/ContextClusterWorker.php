@@ -4,6 +4,7 @@ namespace Amp\Cluster\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\Cluster\ClusterException;
 use Amp\Cluster\ClusterWorker;
 use Amp\Cluster\ClusterWorkerMessage;
 use Amp\DeferredCancellation;
@@ -90,7 +91,7 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
             $this->now = now();
 
             if ($this->lastActivity < $this->now - $pingTimeout) {
-                $this->close();
+                $this->close(new ClusterException(\sprintf('No response to pings within %g seconds', $pingTimeout)));
                 return;
             }
 
@@ -100,8 +101,11 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
 
             try {
                 $this->context->send(new WatcherMessage(WatcherMessageType::Ping, 0));
-            } catch (\Throwable) {
-                $this->close();
+            } catch (\Throwable $exception) {
+                $this->close(new ClusterException(
+                    'Sending a ping failed: ' . $exception->getMessage(),
+                    previous: $exception,
+                ));
             }
         }), reference: false);
 
@@ -110,37 +114,47 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         $cancellation = $this->deferredCancellation->getCancellation();
 
         try {
-            // We get null as last message from the cluster-runner in case it's shutting down cleanly.
-            // In that case, join it.
-            /** @var WorkerMessage $message */
-            while ($message = $this->context->receive($cancellation)) {
-                $this->lastActivity = $this->now;
-
-                match ($message->type) {
-                    WorkerMessageType::Pong => null,
-
-                    WorkerMessageType::Data => $this->queue
-                        ->pushAsync(new ClusterWorkerMessage($this, $message->data))
-                        ->ignore(),
-
-                    WorkerMessageType::Log => $this->handleLogRecord($message->data),
-                };
-            }
-
             try {
+                // We get null as last message from the cluster-runner in case it's shutting down cleanly.
+                // In that case, join it.
+                /** @var WorkerMessage $message */
+                while ($message = $this->context->receive($cancellation)) {
+                    $this->lastActivity = $this->now;
+
+                    match ($message->type) {
+                        WorkerMessageType::Pong => null,
+
+                        WorkerMessageType::Data => $this->queue
+                            ->pushAsync(new ClusterWorkerMessage($this, $message->data))
+                            ->ignore(),
+
+                        WorkerMessageType::Log => $this->handleLogRecord($message->data),
+                    };
+                }
+
                 if ($shutdownTimeout === null) {
                     $this->joinFuture->await();
                 } else {
                     $this->joinFuture->await(new TimeoutCancellation($shutdownTimeout));
                 }
-            } catch (CancelledException) {
-                $this->close();
+            } catch (CancelledException $exception) {
+                /** @psalm-suppress PossiblyNullArgument Only reached if a shutdown timeout is set. */
+                $this->close(new ClusterException(\sprintf(
+                    'Did not exit within %g seconds of shutting down',
+                    $shutdownTimeout,
+                ), previous: $exception));
+
                 // Give it a second to reap the result. Generally this never should time out, unless something is
                 // seriously broken.
                 $this->joinFuture->await(new TimeoutCancellation(1));
             }
         } catch (\Throwable $exception) {
             $this->joinFuture->ignore();
+
+            // If execution was cancelled, throw that exception.
+            $cancellation->throwIfRequested();
+
+            // Otherwise throw the exception caught above.
             throw $exception;
         } finally {
             $interval->disable();
@@ -170,12 +184,15 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
         }
     }
 
-    private function close(): void
+    /**
+     * @param \Throwable|null $reason Reason the worker was closed.
+     */
+    private function close(?\Throwable $reason = null): void
     {
         $this->socket->close();
         $this->context->close();
 
-        $this->deferredCancellation->cancel();
+        $this->deferredCancellation->cancel($reason);
     }
 
     public function isShutdownRequested(): bool
