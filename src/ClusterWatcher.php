@@ -21,6 +21,7 @@ use Amp\Pipeline\Queue;
 use Amp\Socket\ResourceSocket;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
+use Amp\TimeoutCancellation;
 use Monolog\Handler\PsrHandler;
 use Monolog\Logger;
 use Psr\Log\LoggerInterface as PsrLogger;
@@ -54,6 +55,11 @@ final class ClusterWatcher
      * The default worker ping timeout in seconds.
      */
     public const DEFAULT_WORKER_PING_TIMEOUT = 10;
+
+    /**
+     * The default worker start timeout in seconds.
+     */
+    public const DEFAULT_WORKER_START_TIMEOUT = 5;
 
     /**
      * A worker exiting on its own within this many seconds of starting is considered to have failed. Once a worker
@@ -102,6 +108,8 @@ final class ClusterWatcher
      * @param float $workerPingTimeout Seconds without activity before the watcher considers a worker dead
      *       and terminates it. Default {@see self::DEFAULT_WORKER_PING_TIMEOUT}. Increase or applications that
      *       legitimately do synchronous blocking work (e.g. PDO drivers) longer than the default ceiling.
+     * @param float $workerStartTimeout Seconds to wait for a started worker to connect to the watcher, after which
+     *       starting the worker fails. Default {@see self::DEFAULT_WORKER_START_TIMEOUT}.
      */
     public function __construct(
         string|array $script,
@@ -111,6 +119,7 @@ final class ClusterWatcher
         private readonly ServerSocketPipeProvider $provider = new ServerSocketPipeProvider(),
         private readonly ?float $workerShutdownTimeout = self::DEFAULT_WORKER_SHUTDOWN_TIMEOUT,
         private readonly float $workerPingTimeout = self::DEFAULT_WORKER_PING_TIMEOUT,
+        private readonly float $workerStartTimeout = self::DEFAULT_WORKER_START_TIMEOUT,
     ) {
         if (Cluster::isWorker()) {
             throw new \Error("A new cluster cannot be created from within a cluster worker");
@@ -127,6 +136,13 @@ final class ClusterWatcher
             throw new \ValueError(\sprintf(
                 'Worker ping timeout must be greater than zero (seconds); got %.3f',
                 $this->workerPingTimeout,
+            ));
+        }
+
+        if ($this->workerStartTimeout <= 0) {
+            throw new \ValueError(\sprintf(
+                'Worker start timeout must be greater than zero (seconds); got %.3f',
+                $this->workerStartTimeout,
             ));
         }
 
@@ -208,16 +224,16 @@ final class ClusterWatcher
     {
         $context = $this->contextFactory->start($this->script);
 
-        $key = $this->hub->generateKey();
-
-        $context->send([
-            'id' => $id,
-            'uri' => $this->hub->getUri(),
-            'key' => $key,
-        ]);
-
         try {
-            $socket = $this->hub->accept($key);
+            $key = $this->hub->generateKey();
+
+            $context->send([
+                'id' => $id,
+                'uri' => $this->hub->getUri(),
+                'key' => $key,
+            ]);
+
+            $socket = $this->hub->accept($key, new TimeoutCancellation($this->workerStartTimeout));
         } catch (\Throwable $exception) {
             if (!$context->isClosed()) {
                 $context->close();
@@ -227,6 +243,9 @@ final class ClusterWatcher
         }
 
         if (!$socket instanceof ResourceSocket) {
+            $socket->close();
+            $context->close();
+
             throw new \TypeError(\sprintf(
                 "The %s instance returned from %s::accept() must also implement %s",
                 Socket::class,

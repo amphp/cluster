@@ -2,6 +2,7 @@
 
 namespace Amp\Cluster\Test;
 
+use Amp\Cluster\ClusterException;
 use Amp\Cluster\ClusterWatcher;
 use Amp\Parallel\Ipc\LocalIpcHub;
 use Amp\PHPUnit\AsyncTestCase;
@@ -39,6 +40,22 @@ class ClusterWatcherTest extends AsyncTestCase
         } finally {
             $watcher->stop();
         }
+    }
+
+    public function testStartFailsIfWorkerExitsBeforeConnecting(): void
+    {
+        // The worker exits before connecting to the watcher, as the script does not exist.
+        $watcher = new ClusterWatcher(
+            script: __DIR__ . '/scripts/does-not-exist.php',
+            logger: $this->logger,
+            hub: new LocalIpcHub(),
+            workerStartTimeout: 1,
+        );
+
+        $this->expectException(ClusterException::class);
+        $this->expectExceptionMessage('Starting the cluster worker failed');
+
+        $watcher->start(1);
     }
 
     public function testInvalidWorkerCount(): void
