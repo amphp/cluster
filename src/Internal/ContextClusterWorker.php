@@ -18,6 +18,7 @@ use Amp\Pipeline\Queue;
 use Amp\Socket\Socket;
 use Amp\Sync\ChannelException;
 use Amp\TimeoutCancellation;
+use Monolog\Handler\HandlerInterface as MonologHandler;
 use Monolog\Logger;
 use Monolog\LogRecord;
 use Psr\Log\AbstractLogger;
@@ -166,22 +167,59 @@ final class ContextClusterWorker extends AbstractLogger implements ClusterWorker
      * Passes a log record sent by the worker to each handler of the watcher's logger.
      *
      * @param array|LogRecord $record Array for Monolog v1.x or 2.x and {@see LogRecord} for v3.x.
+     *
+     * @psalm-suppress PossiblyInvalidArgument Handler and processor arguments depend on Monolog version.
      */
     private function handleLogRecord(array|LogRecord $record): void
     {
-        foreach ($this->logger->getHandlers() as $handler) {
-            try {
-                /** @psalm-suppress PossiblyInvalidArgument */
-                $handler->handle($record);
-            } catch (\Throwable $exception) {
-                $exceptionHandler = $this->logger->getExceptionHandler();
-                if (!$exceptionHandler) {
-                    throw $exception;
-                }
+        $extra = ['id' => $this->id];
+        if ($this->context instanceof ProcessContext) {
+            $extra['pid'] = $this->context->getPid();
+        }
 
-                $exceptionHandler($exception, $record);
+        if ($record instanceof LogRecord) {
+            $record = $record->with(extra: [...$record->extra, ...$extra]);
+        } else {
+            /** @psalm-suppress InvalidOperand $record is an array for Monolog v1.x and 2.x */
+            $record['extra'] = [...($record['extra'] ?? []), ...$extra];
+        }
+
+        $handlers = \array_filter(
+            $this->logger->getHandlers(),
+            fn (MonologHandler $handler) => $handler->isHandling($record),
+        );
+
+        if (!$handlers) {
+            return;
+        }
+
+        foreach ($this->logger->getProcessors() as $processor) {
+            try {
+                $record = $processor($record);
+            } catch (\Throwable $exception) {
+                $this->handleLoggerException($exception, $record);
             }
         }
+
+        foreach ($handlers as $handler) {
+            try {
+                if ($handler->handle($record)) {
+                    return; // The handler does not bubble the record to the remaining handlers.
+                }
+            } catch (\Throwable $exception) {
+                $this->handleLoggerException($exception, $record);
+            }
+        }
+    }
+
+    private function handleLoggerException(\Throwable $exception, array|LogRecord $record): void
+    {
+        $exceptionHandler = $this->logger->getExceptionHandler();
+        if (!$exceptionHandler) {
+            throw $exception;
+        }
+
+        $exceptionHandler($exception, $record);
     }
 
     /**

@@ -211,6 +211,49 @@ class ClusterWatcherTest extends AsyncTestCase
         $this->assertSame(2, $received);
     }
 
+    public function testWorkerLogRecordsPassThroughWatcherLogger(): void
+    {
+        // Not reached, as the handler called before it does not bubble records.
+        $unreachedHandler = new TestHandler();
+        $this->logger->pushHandler($unreachedHandler);
+
+        // Pushed last so it is called first.
+        $handler = new TestHandler(bubble: false);
+        $this->logger->pushHandler($handler);
+
+        $this->logger->pushProcessor(
+            static fn (LogRecord $record) => $record->with(extra: [...$record->extra, 'processed' => true]),
+        );
+
+        $watcher = new ClusterWatcher(__DIR__ . '/scripts/test-log.php', $this->logger, new LocalIpcHub());
+        $watcher->start(1);
+
+        $workerId = 0;
+
+        try {
+            foreach ($watcher->getMessageIterator() as $message) {
+                $workerId = $message->getWorker()->getId();
+                break;
+            }
+        } finally {
+            $watcher->stop();
+        }
+
+        self::assertTrue($handler->hasInfoThatContains('First log record'));
+        self::assertTrue($handler->hasInfoThatContains('Second log record'));
+
+        foreach ($handler->getRecords() as $record) {
+            if ($record->channel !== 'worker') {
+                continue;
+            }
+
+            self::assertArrayHasKey('processed', $record->extra);
+            self::assertSame($workerId, $record->extra['id'] ?? null);
+        }
+
+        self::assertFalse($unreachedHandler->hasInfoThatContains('log record'));
+    }
+
     public function testLogHandlerFailureDoesNotAffectWorker(): void
     {
         $testHandler = new TestHandler();
