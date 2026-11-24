@@ -44,13 +44,14 @@ final class StreamResourceSendPipe implements Closable
             throw new SocketException('The provided socket has already been closed');
         }
 
-        $this->onWritable = $onWritable = EventLoop::disable(EventLoop::onWritable(
+        $this->onWritable = EventLoop::disable(EventLoop::onWritable(
             $streamResource,
             static function (string $callbackId, $stream) use (
                 $transferSocket,
                 $transferQueue,
             ): void {
                 if (\feof($stream)) {
+                    EventLoop::disable($callbackId);
                     $transferSocket->close();
                     return;
                 }
@@ -88,9 +89,7 @@ final class StreamResourceSendPipe implements Closable
             },
         ));
 
-        $this->transferSocket->onClose(static function () use ($transferQueue, $onWritable): void {
-            EventLoop::cancel($onWritable);
-
+        $this->onClose(static function () use ($transferQueue): void {
             while (!$transferQueue->isEmpty()) {
                 /** @var Suspension<null|\Closure():never> $suspension */
                 [$suspension] = $transferQueue->dequeue();
@@ -101,9 +100,15 @@ final class StreamResourceSendPipe implements Closable
         });
     }
 
+    public function __destruct()
+    {
+        $this->close();
+    }
+
     #[\Override]
     public function close(): void
     {
+        EventLoop::cancel($this->onWritable);
         $this->transferSocket->close();
     }
 

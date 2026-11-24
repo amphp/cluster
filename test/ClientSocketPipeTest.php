@@ -172,4 +172,26 @@ class ClientSocketPipeTest extends AsyncTestCase
             $receiveSocket->close();
         }
     }
+
+    public function testDroppedReceivePipeClosesTransferSocket(): void
+    {
+        [$socket, $peer] = Socket\createSocketPair();
+
+        $pipe = new ClientSocketReceivePipe($socket);
+
+        unset($pipe, $socket);
+
+        self::assertNull($peer->read(new TimeoutCancellation(1)));
+    }
+
+    public function testDroppedSendPipeClosesTransferSocket(): void
+    {
+        [$socket, $peer] = Socket\createSocketPair();
+
+        $pipe = new ClientSocketSendPipe($socket);
+
+        unset($pipe, $socket);
+
+        self::assertNull($peer->read(new TimeoutCancellation(1)));
+    }
 }

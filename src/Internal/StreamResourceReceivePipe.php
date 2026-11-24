@@ -51,7 +51,7 @@ final class StreamResourceReceivePipe implements Closable
         }
 
         $suspension = &$this->waiting;
-        $this->onReadable = $onReadable = EventLoop::disable(EventLoop::onReadable(
+        $this->onReadable = EventLoop::disable(EventLoop::onReadable(
             $streamResource,
             static function (string $callbackId, $stream) use (
                 &$suspension,
@@ -88,15 +88,20 @@ final class StreamResourceReceivePipe implements Closable
             },
         ));
 
-        $this->transferSocket->onClose(static function () use (&$suspension, $onReadable): void {
-            EventLoop::cancel($onReadable);
+        $this->onClose(static function () use (&$suspension): void {
             $suspension?->resume(static fn () => throw new SocketException('The transfer socket closed unexpectedly'));
         });
+    }
+
+    public function __destruct()
+    {
+        $this->close();
     }
 
     #[\Override]
     public function close(): void
     {
+        EventLoop::cancel($this->onReadable);
         $this->transferSocket->close();
     }
 
